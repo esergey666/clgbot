@@ -1,6 +1,7 @@
 from dataclasses import dataclass
 from os import getenv
 from pathlib import Path
+import re
 
 from dotenv import load_dotenv
 
@@ -38,9 +39,22 @@ def _get_env_value(*names: str) -> str | None:
     return None
 
 
+def _normalize_token(value: str | None) -> str | None:
+    if not value:
+        return None
+
+    token = value.strip().strip('"').strip("'")
+    if "=" in token:
+        left, right = token.split("=", 1)
+        if left.strip().upper() in {"BOT_TOKEN", "TOKEN", "BOT"}:
+            token = right
+
+    return re.sub(r"\s+", "", token.strip().strip('"').strip("'"))
+
+
 def load_config() -> BotConfig:
     load_dotenv(BASE_DIR / ".env")
-    token = _get_env_value("BOT_TOKEN", "bot", "TOKEN")
+    token = _normalize_token(_get_env_value("BOT_TOKEN", "bot", "TOKEN"))
     if not token:
         raise RuntimeError("Telegram bot token is missing. Set BOT_TOKEN in environment variables.")
 
