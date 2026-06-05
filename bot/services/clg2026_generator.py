@@ -5,7 +5,6 @@ from io import BytesIO
 from pathlib import Path
 
 from PIL import Image, ImageDraw, ImageFont
-from pylibdmtx.pylibdmtx import encode
 
 from .custom_qr_generator import CustomQrGenerator
 
@@ -71,6 +70,11 @@ class Clg2026Generator:
         )
 
     def _add_datamatrix(self, img: Image.Image, data: str, position: tuple[int, int], size: int) -> None:
+        try:
+            from pylibdmtx.pylibdmtx import encode
+        except ImportError as error:
+            raise RuntimeError("libdmtx is not installed on the server. Install libdmtx0b/libdmtx.") from error
+
         encoded = encode(data.encode("utf-8"))
         dm_img = Image.frombytes("RGB", (encoded.width, encoded.height), encoded.pixels)
         bbox = dm_img.convert("L").point(lambda value: 255 if value < 128 else 0).getbbox()

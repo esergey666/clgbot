@@ -2,7 +2,6 @@ from io import BytesIO
 from pathlib import Path
 
 from PIL import Image, ImageDraw, ImageFont
-from pylibdmtx.pylibdmtx import encode
 
 from .custom_qr_generator import CustomQrGenerator
 
@@ -134,6 +133,11 @@ class LabelGenerator:
         self.template.paste(qr_img, position, qr_img)
 
     async def add_datemark(self, data, position, size=150):
+        try:
+            from pylibdmtx.pylibdmtx import encode
+        except ImportError as error:
+            raise RuntimeError("libdmtx is not installed on the server. Install libdmtx0b/libdmtx.") from error
+
         encode_data = encode(data.encode("utf-8"))
         img = Image.frombytes("RGB", (encode_data.width, encode_data.height), encode_data.pixels)
         img = img.resize((size, size))
