@@ -1,4 +1,5 @@
 from io import BytesIO
+import logging
 from pathlib import Path
 from zipfile import ZIP_DEFLATED, ZipFile
 
@@ -24,6 +25,7 @@ from bot.services.receipt_renderer import ReceiptData, ReceiptRenderer
 from bot.states import LabelForm
 
 router = Router()
+logger = logging.getLogger(__name__)
 
 
 def _message_has_access(message: Message, config: BotConfig) -> bool:
@@ -482,7 +484,17 @@ async def _send_single_label(message: Message, parts: list[str], label_type: str
     if not await _try_consume_balance(message, config, _get_generation_cost(config, label_type)):
         return False
 
-    image = await _generate_label_image(parts, label_type, config)
+    try:
+        image = await _generate_label_image(parts, label_type, config)
+    except Exception as error:
+        logger.exception("Failed to generate %s label", label_type)
+        await message.answer(
+            "Не удалось сгенерировать файл на хостинге.\n\n"
+            f"Ошибка: <code>{type(error).__name__}: {error}</code>\n\n"
+            "Если это бирка 40/45 мм, проверьте, что на хостинге установлена системная библиотека <code>libdmtx0b</code>."
+        )
+        return False
+
     await message.answer_document(
         document=BufferedInputFile(image.getvalue(), filename=f"{_get_label_file_slug(label_type)}.png")
     )
@@ -509,7 +521,16 @@ async def _send_many_labels(message: Message, labels: list[list[str]], label_typ
 
     with ZipFile(archive_buffer, "w", compression=ZIP_DEFLATED) as archive:
         for index, parts in enumerate(labels, start=1):
-            image = await _generate_label_image(parts, label_type, config)
+            try:
+                image = await _generate_label_image(parts, label_type, config)
+            except Exception as error:
+                logger.exception("Failed to generate %s label from line %s", label_type, index)
+                await message.answer(
+                    f"Не удалось сгенерировать файл из строки {index}.\n\n"
+                    f"Ошибка: <code>{type(error).__name__}: {error}</code>\n\n"
+                    "Если это бирка 40/45 мм, проверьте, что на хостинге установлена системная библиотека <code>libdmtx0b</code>."
+                )
+                return False
             filename = f"{_get_label_file_slug(label_type)}_{index:03d}_{parts[0]}_{parts[1]}_{parts[2]}.png"
             archive.writestr(filename, image.getvalue())
 
@@ -924,7 +945,6 @@ async def handle_label_data(message: Message, state: FSMContext, config: BotConf
         labels = _parse_label_list(message.text.strip(), _get_expected_parts(label_type))
 
         if len(labels) == 1:
-            await message.answer("Спасибо! Данные приняты.")
             was_sent = await _send_single_label(message, labels[0], label_type, config)
         else:
             was_sent = await _send_many_labels(message, labels, label_type, config)
