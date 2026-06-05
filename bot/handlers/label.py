@@ -484,6 +484,8 @@ async def _send_single_label(message: Message, parts: list[str], label_type: str
     if not await _try_consume_balance(message, config, _get_generation_cost(config, label_type)):
         return False
 
+    status_message = await message.answer("Начинаю генерацию...")
+
     try:
         image = await _generate_label_image(parts, label_type, config)
     except Exception as error:
@@ -498,6 +500,7 @@ async def _send_single_label(message: Message, parts: list[str], label_type: str
     await message.answer_document(
         document=BufferedInputFile(image.getvalue(), filename=f"{_get_label_file_slug(label_type)}.png")
     )
+    await status_message.delete()
     await _send_remaining_balance(message, config)
     return True
 
@@ -959,3 +962,16 @@ async def handle_label_data(message: Message, state: FSMContext, config: BotConf
             f"<code>{_get_label_format(label_type)}</code>\n\n"
             "Для массовой генерации можно отправить несколько строк текстом или .txt файлом."
         )
+
+@router.message()
+async def handle_unexpected_message(message: Message, state: FSMContext, config: BotConfig) -> None:
+    if not _message_has_access(message, config):
+        await message.answer("У вас нет доступа к использованию этого бота.", reply_markup=access_denied_keyboard())
+        return
+
+    await state.set_state(LabelForm.waiting_for_label_type)
+    await message.answer(
+        "Я получил сообщение, но сейчас не выбран тип файла.\n\n"
+        "Нажмите «Создать файл» и выберите, что нужно сгенерировать.",
+        reply_markup=user_home_keyboard(),
+    )

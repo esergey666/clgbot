@@ -7,6 +7,7 @@ from bot.config import BotConfig
 from bot.keyboards import access_denied_keyboard, cabinet_keyboard, label_type_keyboard, user_back_keyboard, user_home_keyboard
 from bot.services.access import AccessService
 from bot.states import LabelForm
+from bot.version import APP_VERSION
 
 router = Router()
 
@@ -84,6 +85,11 @@ async def id_command(message: Message) -> None:
         return
 
     await message.answer(f"Ваш Telegram ID: <code>{message.from_user.id}</code>")
+
+
+@router.message(Command("version"))
+async def version_command(message: Message) -> None:
+    await message.answer(f"Bot version: <code>{APP_VERSION}</code>")
 
 
 @router.message(Command("key"))
