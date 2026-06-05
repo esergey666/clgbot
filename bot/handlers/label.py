@@ -474,20 +474,25 @@ async def _generate_label_image(parts: list[str], label_type: str, config: BotCo
 
 
 async def _send_single_label(message: Message, parts: list[str], label_type: str, config: BotConfig) -> bool:
+    logger.info("Single label request started: type=%s parts=%s", label_type, parts)
     missing_paths = _get_missing_asset_paths(label_type, config)
     if missing_paths:
+        logger.warning("Missing assets for %s: %s", label_type, missing_paths)
         await message.answer(
             "Не хватает файлов шаблона:\n"
             + "\n".join(f"<code>{path}</code>" for path in missing_paths)
         )
         return False
     if not await _try_consume_balance(message, config, _get_generation_cost(config, label_type)):
+        logger.info("Single label request stopped by balance check: type=%s", label_type)
         return False
 
     status_message = await message.answer("Начинаю генерацию...")
 
     try:
+        logger.info("Generating image: type=%s", label_type)
         image = await _generate_label_image(parts, label_type, config)
+        logger.info("Image generated: type=%s bytes=%s", label_type, len(image.getvalue()))
     except Exception as error:
         logger.exception("Failed to generate %s label", label_type)
         await message.answer(
@@ -497,9 +502,11 @@ async def _send_single_label(message: Message, parts: list[str], label_type: str
         )
         return False
 
+    logger.info("Sending generated document: type=%s", label_type)
     await message.answer_document(
         document=BufferedInputFile(image.getvalue(), filename=f"{_get_label_file_slug(label_type)}.png")
     )
+    logger.info("Generated document sent: type=%s", label_type)
     await status_message.delete()
     await _send_remaining_balance(message, config)
     return True

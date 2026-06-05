@@ -10,6 +10,7 @@ from aiogram.fsm.storage.memory import MemoryStorage
 
 from bot.config import load_config
 from bot.handlers import setup_routers
+from bot.version import APP_VERSION
 
 
 RECONNECT_DELAY_SECONDS = 15
@@ -17,6 +18,7 @@ RECONNECT_DELAY_SECONDS = 15
 
 async def main() -> None:
     config = load_config()
+    logging.info("Bot app version: %s", APP_VERSION)
     dp = Dispatcher(storage=MemoryStorage(), config=config)
     dp.include_router(setup_routers())
 

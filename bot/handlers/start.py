@@ -12,6 +12,14 @@ from bot.version import APP_VERSION
 router = Router()
 
 
+def _get_dmtx_status() -> str:
+    try:
+        from pylibdmtx.pylibdmtx import encode  # noqa: F401
+    except Exception as error:
+        return f"not available ({type(error).__name__}: {error})"
+    return "available"
+
+
 def _has_access(message: Message, config: BotConfig) -> bool:
     return message.from_user is not None and AccessService(config.access_users_path).has_access(
         message.from_user.id,
@@ -89,7 +97,10 @@ async def id_command(message: Message) -> None:
 
 @router.message(Command("version"))
 async def version_command(message: Message) -> None:
-    await message.answer(f"Bot version: <code>{APP_VERSION}</code>")
+    await message.answer(
+        f"Bot version: <code>{APP_VERSION}</code>\n"
+        f"libdmtx: <code>{_get_dmtx_status()}</code>"
+    )
 
 
 @router.message(Command("key"))
