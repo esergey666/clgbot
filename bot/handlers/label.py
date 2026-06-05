@@ -18,16 +18,9 @@ from bot.keyboards import (
     user_home_keyboard,
 )
 from bot.pricing import DEFAULT_GENERATION_PRICES
-from bot.services import (
-    AccessService,
-    Clg2026Generator,
-    LabelGenerator,
-    PriceTagData,
-    PriceTagRenderer,
-    ReceiptData,
-    ReceiptRenderer,
-    normalize_model_code,
-)
+from bot.services.access import AccessService
+from bot.services.price_tag_renderer import PriceTagData, PriceTagRenderer, normalize_model_code
+from bot.services.receipt_renderer import ReceiptData, ReceiptRenderer
 from bot.states import LabelForm
 
 router = Router()
@@ -432,6 +425,8 @@ async def _send_price_tag_list_from_text(message: Message, text: str, config: Bo
 
 
 async def _generate_main_label_image(parts: list[str], config: BotConfig) -> BytesIO:
+    from bot.services.label_generator import LabelGenerator
+
     label = LabelGenerator(
         config.template_path,
         config.font_path,
@@ -450,6 +445,8 @@ async def _generate_main_label_image(parts: list[str], config: BotConfig) -> Byt
 
 
 async def _generate_clg2026_label_image(parts: list[str], config: BotConfig) -> BytesIO:
+    from bot.services.clg2026_generator import Clg2026Generator
+
     label = Clg2026Generator(
         config.clg2026_template_path,
         config.clg2026_arial_font_path,

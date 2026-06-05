@@ -5,7 +5,7 @@ from aiogram.types import CallbackQuery, Message
 
 from bot.config import BotConfig
 from bot.keyboards import access_denied_keyboard, cabinet_keyboard, label_type_keyboard, user_back_keyboard, user_home_keyboard
-from bot.services import AccessService
+from bot.services.access import AccessService
 from bot.states import LabelForm
 
 router = Router()

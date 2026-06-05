@@ -16,7 +16,7 @@ from bot.keyboards import (
     admin_panel_keyboard,
 )
 from bot.pricing import DEFAULT_GENERATION_PRICES, PRICE_LABEL_ORDER
-from bot.services import AccessService
+from bot.services.access import AccessService
 from bot.states import AdminForm
 
 router = Router()
