@@ -30,12 +30,23 @@ def _parse_admin_ids(value: str | None) -> list[int]:
     return [int(item.strip()) for item in (value or "").split(",") if item.strip()]
 
 
+def _get_env_value(*names: str) -> str | None:
+    for name in names:
+        value = getenv(name)
+        if value and value.strip():
+            return value.strip().strip('"').strip("'")
+    return None
+
+
 def load_config() -> BotConfig:
     load_dotenv(BASE_DIR / ".env")
+    token = _get_env_value("BOT_TOKEN", "bot", "TOKEN")
+    if not token:
+        raise RuntimeError("Telegram bot token is missing. Set BOT_TOKEN in environment variables.")
 
     return BotConfig(
-        token=str(getenv("bot")),
-        admin_ids=_parse_admin_ids(getenv("admins")),
+        token=token,
+        admin_ids=_parse_admin_ids(_get_env_value("ADMIN_IDS", "admins")),
         template_path=ASSETS_DIR / "back.png",
         font_path=ASSETS_DIR / "font.ttf",
         number_font_path=ASSETS_DIR / "num.ttf",
