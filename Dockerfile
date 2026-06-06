@@ -7,6 +7,7 @@ WORKDIR /app
 
 RUN apt-get update \
     && apt-get install -y --no-install-recommends libdmtx0b libdmtx-dev \
+    && ldconfig \
     && rm -rf /var/lib/apt/lists/*
 
 COPY requirements.txt .
