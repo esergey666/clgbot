@@ -24,6 +24,7 @@ from bot.services.access import AccessService
 from bot.services.price_tag_renderer import PriceTagData, PriceTagRenderer, normalize_model_code
 from bot.services.receipt_renderer import ReceiptData, ReceiptRenderer
 from bot.states import LabelForm
+from bot.ui import replace_ui_message, send_ui_message
 
 router = Router()
 logger = logging.getLogger(__name__)
@@ -595,7 +596,9 @@ async def handle_label_type(callback: CallbackQuery, state: FSMContext, config: 
     if label_type == RECEIPT_LABEL_TYPE:
         await state.set_state(LabelForm.waiting_for_receipt_data)
         if callback.message is not None:
-            await callback.message.answer(
+            await replace_ui_message(
+                callback,
+                state,
                 f"Выбрано: {_get_label_type_name(label_type)}\n\n"
                 "Отправьте данные одной строкой:\n"
                 f"<code>{RECEIPT_FORMAT}</code>\n\n"
@@ -611,7 +614,9 @@ async def handle_label_type(callback: CallbackQuery, state: FSMContext, config: 
     if label_type == PRICE_TAG_LABEL_TYPE:
         await state.set_state(LabelForm.waiting_for_price_article)
         if callback.message is not None:
-            await callback.message.answer(
+            await replace_ui_message(
+                callback,
+                state,
                 f"Выбрано: {_get_label_type_name(label_type)}\n\n"
                 "Введите артикул: 9 цифр без MO. Пример: <code>801564651</code>\n\n"
                 "Для массовой генерации отправьте .txt или несколько строк текстом:\n"
@@ -632,17 +637,19 @@ async def handle_label_type(callback: CallbackQuery, state: FSMContext, config: 
     )
 
     if callback.message is not None:
-        await callback.message.answer(text)
+        await replace_ui_message(callback, state, text)
     await callback.answer()
 
 
 @router.message(LabelForm.waiting_for_label_type)
-async def handle_missing_label_type(message: Message, config: BotConfig) -> None:
+async def handle_missing_label_type(message: Message, state: FSMContext, config: BotConfig) -> None:
     if not _message_has_access(message, config):
         await message.answer("У вас нет доступа к использованию этого бота.")
         return
 
-    await message.answer(
+    await send_ui_message(
+        message,
+        state,
         "Сначала выберите, что сделать:\n\n"
         "Стоимость генерации:\n"
         f"{_generation_prices_text(config)}",
@@ -809,7 +816,7 @@ async def handle_price_article(message: Message, state: FSMContext, config: BotC
 
     await state.update_data(price_article=article)
     await state.set_state(LabelForm.waiting_for_price_color)
-    await message.answer("Введите цвет. Пример: <code>A0029</code>")
+    await send_ui_message(message, state, "Введите цвет. Пример: <code>A0029</code>")
 
 
 @router.message(LabelForm.waiting_for_price_color)
@@ -829,7 +836,7 @@ async def handle_price_color(message: Message, state: FSMContext, config: BotCon
 
     await state.update_data(price_color=color)
     await state.set_state(LabelForm.waiting_for_price_size)
-    await message.answer("Введите размер. Пример: <code>XL</code>")
+    await send_ui_message(message, state, "Введите размер. Пример: <code>XL</code>")
 
 
 @router.message(LabelForm.waiting_for_price_size)
@@ -849,7 +856,7 @@ async def handle_price_size(message: Message, state: FSMContext, config: BotConf
 
     await state.update_data(price_size=size)
     await state.set_state(LabelForm.waiting_for_price_title)
-    await message.answer("Введите наименование вещи. Пример: <code>shorts jogger</code>")
+    await send_ui_message(message, state, "Введите наименование вещи. Пример: <code>shorts jogger</code>")
 
 
 @router.message(LabelForm.waiting_for_price_title)
@@ -869,7 +876,7 @@ async def handle_price_title(message: Message, state: FSMContext, config: BotCon
 
     await state.update_data(price_title=title)
     await state.set_state(LabelForm.waiting_for_price_old_value)
-    await message.answer("Введите старую цену без скидки. Пример: <code>500</code>")
+    await send_ui_message(message, state, "Введите старую цену без скидки. Пример: <code>500</code>")
 
 
 @router.message(LabelForm.waiting_for_price_old_value)
@@ -889,7 +896,7 @@ async def handle_price_old_value(message: Message, state: FSMContext, config: Bo
 
     await state.update_data(price_old_value=old_price)
     await state.set_state(LabelForm.waiting_for_price_value)
-    await message.answer("Введите цену со скидкой. Пример: <code>250</code>")
+    await send_ui_message(message, state, "Введите цену со скидкой. Пример: <code>250</code>")
 
 
 @router.message(LabelForm.waiting_for_price_value)
@@ -912,7 +919,7 @@ async def handle_price_value(message: Message, state: FSMContext, config: BotCon
     if not was_sent:
         return
     await state.set_state(LabelForm.waiting_for_label_type)
-    await message.answer("Готово. Можно создать следующий файл:", reply_markup=user_home_keyboard())
+    await send_ui_message(message, state, "Готово. Можно создать следующий файл:", reply_markup=user_home_keyboard())
 
 
 @router.message(LabelForm.waiting_for_label_data, F.document)
@@ -923,7 +930,9 @@ async def handle_label_file(message: Message, state: FSMContext, config: BotConf
 
     label_type = await _get_selected_label_type(state)
     if label_type is None:
-        await message.answer(
+        await send_ui_message(
+            message,
+            state,
             "Сначала выберите, что сделать:\n\n"
             "Стоимость генерации:\n"
             f"{_generation_prices_text(config)}",
@@ -972,7 +981,9 @@ async def handle_label_data(message: Message, state: FSMContext, config: BotConf
 
     label_type = await _get_selected_label_type(state)
     if label_type is None:
-        await message.answer(
+        await send_ui_message(
+            message,
+            state,
             "Сначала выберите, что сделать:\n\n"
             "Стоимость генерации:\n"
             f"{_generation_prices_text(config)}",

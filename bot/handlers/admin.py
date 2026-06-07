@@ -17,6 +17,7 @@ from bot.keyboards import (
 from bot.pricing import DEFAULT_GENERATION_PRICES, PRICE_LABEL_ORDER
 from bot.services.access import AccessService
 from bot.states import AdminForm
+from bot.ui import replace_ui_message, send_ui_message
 
 router = Router()
 
@@ -139,7 +140,7 @@ async def admin_command(message: Message, state: FSMContext, config: BotConfig) 
         return
 
     await state.clear()
-    await message.answer(_admin_panel_text(config), reply_markup=admin_panel_keyboard())
+    await send_ui_message(message, state, _admin_panel_text(config), reply_markup=admin_panel_keyboard())
 
 
 @router.callback_query(F.data == "admin:back")
@@ -150,7 +151,7 @@ async def admin_back(callback: CallbackQuery, state: FSMContext, config: BotConf
 
     await state.clear()
     if callback.message is not None:
-        await callback.message.answer(_admin_panel_text(config), reply_markup=admin_panel_keyboard())
+        await replace_ui_message(callback, state, _admin_panel_text(config), reply_markup=admin_panel_keyboard())
     await callback.answer()
 
 
@@ -162,7 +163,9 @@ async def admin_grant_balance(callback: CallbackQuery, state: FSMContext, config
 
     await state.set_state(AdminForm.waiting_for_balance_grant)
     if callback.message is not None:
-        await callback.message.answer(
+        await replace_ui_message(
+            callback,
+            state,
             "Выдать баланс пользователю\n\n"
             "Отправьте Telegram ID и сумму через пробел:\n"
             "<code>1395002445 100</code>",
@@ -189,7 +192,9 @@ async def admin_save_balance_grant(message: Message, state: FSMContext, config: 
     access = AccessService(config.access_users_path)
     new_balance = access.add_balance(user_id, amount)
     await state.clear()
-    await message.answer(
+    await send_ui_message(
+        message,
+        state,
         "Баланс выдан.\n\n"
         f"Пользователь: <code>{user_id}</code> ({access.format_user_label(user_id)})\n"
         f"Начислено: <b>{amount}</b>\n"
@@ -206,7 +211,9 @@ async def admin_prices(callback: CallbackQuery, state: FSMContext, config: BotCo
 
     await state.set_state(AdminForm.waiting_for_generation_prices)
     if callback.message is not None:
-        await callback.message.answer(
+        await replace_ui_message(
+            callback,
+            state,
             "Цены генераций\n\n"
             f"{_format_prices(config)}\n\n"
             "Отправьте новые цены одной строкой. Можно менять все или часть:\n"
@@ -235,7 +242,9 @@ async def admin_save_prices(message: Message, state: FSMContext, config: BotConf
 
     AccessService(config.access_users_path).set_generation_prices(prices)
     await state.clear()
-    await message.answer(
+    await send_ui_message(
+        message,
+        state,
         "Цены сохранены:\n\n"
         f"{_format_prices(config)}",
         reply_markup=admin_panel_keyboard(),
@@ -250,7 +259,9 @@ async def admin_add_user(callback: CallbackQuery, state: FSMContext, config: Bot
 
     await state.set_state(AdminForm.waiting_for_user_id)
     if callback.message is not None:
-        await callback.message.answer(
+        await replace_ui_message(
+            callback,
+            state,
             "Постоянный доступ\n\n"
             "Отправьте Telegram ID пользователя, которому нужно выдать доступ без лимита баланса.",
             reply_markup=admin_back_keyboard(),
@@ -278,19 +289,23 @@ async def admin_save_user(message: Message, state: FSMContext, config: BotConfig
     await state.clear()
 
     if was_added:
-        await message.answer(
+        await send_ui_message(
+            message,
+            state,
             f"Постоянный доступ выдан пользователю <code>{user_id}</code> ({access.format_user_label(user_id)}).",
             reply_markup=admin_panel_keyboard(),
         )
     else:
-        await message.answer(
+        await send_ui_message(
+            message,
+            state,
             f"Пользователь <code>{user_id}</code> ({access.format_user_label(user_id)}) уже был в списке.",
             reply_markup=admin_panel_keyboard(),
         )
 
 
 @router.callback_query(F.data == "admin:list_users")
-async def admin_list_users(callback: CallbackQuery, config: BotConfig, bot: Bot) -> None:
+async def admin_list_users(callback: CallbackQuery, state: FSMContext, config: BotConfig, bot: Bot) -> None:
     if not _is_owner_callback(callback, config):
         await callback.answer("Нет доступа", show_alert=True)
         return
@@ -318,17 +333,19 @@ async def admin_list_users(callback: CallbackQuery, config: BotConfig, bot: Bot)
         )
 
         if lines:
-            await callback.message.answer(
+            await replace_ui_message(
+                callback,
+                state,
                 "Пользователи с доступом:\n" + "\n".join(lines),
                 reply_markup=access_users_keyboard(user_ids, quota_user_ids),
             )
         else:
-            await callback.message.answer("Список пользователей пуст.", reply_markup=admin_panel_keyboard())
+            await replace_ui_message(callback, state, "Список пользователей пуст.", reply_markup=admin_panel_keyboard())
     await callback.answer()
 
 
 @router.callback_query(F.data.startswith("admin:remove_user:"))
-async def admin_remove_user(callback: CallbackQuery, config: BotConfig) -> None:
+async def admin_remove_user(callback: CallbackQuery, state: FSMContext, config: BotConfig) -> None:
     if not _is_owner_callback(callback, config):
         await callback.answer("Нет доступа", show_alert=True)
         return
@@ -338,12 +355,12 @@ async def admin_remove_user(callback: CallbackQuery, config: BotConfig) -> None:
 
     if callback.message is not None:
         text = f"Постоянный доступ пользователя <code>{user_id}</code> удален." if was_removed else "Пользователь не найден."
-        await callback.message.answer(text, reply_markup=admin_panel_keyboard())
+        await replace_ui_message(callback, state, text, reply_markup=admin_panel_keyboard())
     await callback.answer()
 
 
 @router.callback_query(F.data.startswith("admin:clear_quota:"))
-async def admin_clear_quota(callback: CallbackQuery, config: BotConfig) -> None:
+async def admin_clear_quota(callback: CallbackQuery, state: FSMContext, config: BotConfig) -> None:
     if not _is_owner_callback(callback, config):
         await callback.answer("Нет доступа", show_alert=True)
         return
@@ -353,5 +370,5 @@ async def admin_clear_quota(callback: CallbackQuery, config: BotConfig) -> None:
 
     if callback.message is not None:
         text = f"Баланс пользователя <code>{user_id}</code> сброшен." if was_removed else "Баланс не найден."
-        await callback.message.answer(text, reply_markup=admin_panel_keyboard())
+        await replace_ui_message(callback, state, text, reply_markup=admin_panel_keyboard())
     await callback.answer()

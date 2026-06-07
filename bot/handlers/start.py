@@ -8,6 +8,7 @@ from bot.keyboards import access_denied_keyboard, cabinet_keyboard, label_prices
 from bot.pricing import DEFAULT_GENERATION_PRICES
 from bot.services.access import AccessService
 from bot.states import LabelForm
+from bot.ui import replace_ui_message, send_ui_message
 from bot.version import APP_VERSION
 
 router = Router()
@@ -75,7 +76,9 @@ def _cabinet_text(user_id: int, config: BotConfig) -> str:
 async def _show_home(message: Message, state: FSMContext, config: BotConfig) -> None:
     _record_user(config, message.from_user)
     if not _has_access(message, config):
-        await message.answer(
+        await send_ui_message(
+            message,
+            state,
             "Доступ не активирован.\n\n"
             "Напишите администратору, чтобы он выдал баланс на ваш Telegram ID.",
             reply_markup=access_denied_keyboard(),
@@ -83,7 +86,9 @@ async def _show_home(message: Message, state: FSMContext, config: BotConfig) -> 
         return
 
     await state.set_state(LabelForm.waiting_for_label_type)
-    await message.answer(
+    await send_ui_message(
+        message,
+        state,
         "Главное меню\n\nВыберите действие:",
         reply_markup=user_home_keyboard(),
     )
@@ -119,7 +124,9 @@ async def user_home(callback: CallbackQuery, state: FSMContext, config: BotConfi
         return
 
     if not AccessService(config.access_users_path).has_access(callback.from_user.id, config.admin_ids):
-        await callback.message.answer(
+        await replace_ui_message(
+            callback,
+            state,
             "Доступ не активирован.\n\nНапишите администратору, чтобы он выдал баланс на ваш Telegram ID.",
             reply_markup=access_denied_keyboard(),
         )
@@ -127,7 +134,7 @@ async def user_home(callback: CallbackQuery, state: FSMContext, config: BotConfi
         return
 
     await state.set_state(LabelForm.waiting_for_label_type)
-    await callback.message.answer("Главное меню\n\nВыберите действие:", reply_markup=user_home_keyboard())
+    await replace_ui_message(callback, state, "Главное меню\n\nВыберите действие:", reply_markup=user_home_keyboard())
     await callback.answer()
 
 
@@ -137,7 +144,9 @@ async def user_generate(callback: CallbackQuery, state: FSMContext, config: BotC
     if not AccessService(config.access_users_path).has_access(callback.from_user.id, config.admin_ids):
         await callback.answer("Нет активного доступа", show_alert=True)
         if callback.message is not None:
-            await callback.message.answer(
+            await replace_ui_message(
+                callback,
+                state,
                 "Доступ не активирован. Напишите администратору, чтобы он выдал баланс.",
                 reply_markup=access_denied_keyboard(),
             )
@@ -145,7 +154,9 @@ async def user_generate(callback: CallbackQuery, state: FSMContext, config: BotC
 
     await state.set_state(LabelForm.waiting_for_label_type)
     if callback.message is not None:
-        await callback.message.answer(
+        await replace_ui_message(
+            callback,
+            state,
             "Что нужно сгенерировать?\n\n"
             "Стоимость генерации:\n"
             f"{_generation_prices_text(config)}",
@@ -155,8 +166,12 @@ async def user_generate(callback: CallbackQuery, state: FSMContext, config: BotC
 
 
 @router.callback_query(F.data == "user:cabinet")
-async def user_cabinet(callback: CallbackQuery, config: BotConfig) -> None:
+async def user_cabinet(callback: CallbackQuery, state: FSMContext, config: BotConfig) -> None:
     _record_user(config, callback.from_user)
-    if callback.message is not None:
-        await callback.message.answer(_cabinet_text(callback.from_user.id, config), reply_markup=cabinet_keyboard())
+    await replace_ui_message(
+        callback,
+        state,
+        _cabinet_text(callback.from_user.id, config),
+        reply_markup=cabinet_keyboard(),
+    )
     await callback.answer()
