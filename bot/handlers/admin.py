@@ -10,7 +10,6 @@ from bot.keyboards import (
     MAIN_LABEL_TYPE,
     PRICE_TAG_LABEL_TYPE,
     RECEIPT_LABEL_TYPE,
-    access_keys_keyboard,
     access_users_keyboard,
     admin_back_keyboard,
     admin_panel_keyboard,
@@ -46,20 +45,26 @@ def _is_owner_callback(callback: CallbackQuery, config: BotConfig) -> bool:
 def _parse_user_id(text: str) -> int:
     value = text.strip()
     if not value.isdigit():
-        raise ValueError("Отправьте Telegram ID числом. Например: 123456789")
+        raise ValueError("Отправьте Telegram ID числом. Например: <code>123456789</code>")
     return int(value)
 
 
 def _parse_balance(text: str) -> int:
     value = text.strip()
     if not value.isdigit():
-        raise ValueError("Отправьте сумму баланса числом. Например: 100")
+        raise ValueError("Отправьте сумму баланса числом. Например: <code>100</code>")
 
     balance = int(value)
     if balance <= 0:
         raise ValueError("Баланс должен быть больше нуля.")
-
     return balance
+
+
+def _parse_balance_grant(text: str) -> tuple[int, int]:
+    parts = text.replace(",", " ").split()
+    if len(parts) != 2:
+        raise ValueError("Отправьте Telegram ID и сумму через пробел. Пример: <code>1395002445 100</code>")
+    return _parse_user_id(parts[0]), _parse_balance(parts[1])
 
 
 def _format_prices(config: BotConfig) -> str:
@@ -74,20 +79,22 @@ def _parse_generation_prices(text: str, config: BotConfig) -> dict[str, int]:
     prices = AccessService(config.access_users_path).get_generation_prices(DEFAULT_GENERATION_PRICES)
     parts = [part.strip() for part in text.replace("\n", ",").split(",") if part.strip()]
     if not parts:
-        raise ValueError("Отправьте цены в формате: 40=10, 45=15, price=5, check=20")
+        raise ValueError("Отправьте цены в формате: <code>40=10, 45=15, price=5, check=20</code>")
 
     for part in parts:
         if "=" not in part:
-            raise ValueError(f"Нет знака '=' в части: {part}")
+            raise ValueError(f"Нет знака '=' в части: <code>{part}</code>")
+
         raw_key, raw_value = [item.strip() for item in part.split("=", maxsplit=1)]
         label_type = PRICE_INPUT_ALIASES.get(raw_key.lower())
         if label_type is None:
-            raise ValueError(f"Неизвестный тип: {raw_key}")
+            raise ValueError(f"Неизвестный тип: <code>{raw_key}</code>")
         if not raw_value.isdigit():
-            raise ValueError(f"Цена для {raw_key} должна быть числом.")
+            raise ValueError(f"Цена для <code>{raw_key}</code> должна быть числом.")
+
         price = int(raw_value)
         if price <= 0:
-            raise ValueError(f"Цена для {raw_key} должна быть больше нуля.")
+            raise ValueError(f"Цена для <code>{raw_key}</code> должна быть больше нуля.")
         prices[label_type] = price
 
     return prices
@@ -97,15 +104,17 @@ def _admin_panel_text(config: BotConfig) -> str:
     access = AccessService(config.access_users_path)
     permanent_count = len(access.list_user_ids())
     balance_count = len([balance for balance in access.list_balances().values() if balance > 0])
-    key_count = len(access.list_keys())
 
     return (
         "Админ-панель\n\n"
         f"Постоянный доступ: <b>{permanent_count}</b>\n"
-        f"Пользователи с балансом: <b>{balance_count}</b>\n"
-        f"Активные ключи: <b>{key_count}</b>\n\n"
+        f"Пользователи с балансом: <b>{balance_count}</b>\n\n"
         "Выберите действие:"
     )
+
+
+def _format_user_line(access: AccessService, user_id: int, text: str) -> str:
+    return f"<code>{user_id}</code> ({access.format_user_label(user_id)}) — {text}"
 
 
 @router.message(Command("admin"))
@@ -130,46 +139,46 @@ async def admin_back(callback: CallbackQuery, state: FSMContext, config: BotConf
     await callback.answer()
 
 
-@router.callback_query(F.data == "admin:create_key")
-async def admin_create_key(callback: CallbackQuery, state: FSMContext, config: BotConfig) -> None:
+@router.callback_query(F.data == "admin:grant_balance")
+async def admin_grant_balance(callback: CallbackQuery, state: FSMContext, config: BotConfig) -> None:
     if not _is_owner_callback(callback, config):
         await callback.answer("Нет доступа", show_alert=True)
         return
 
-    await state.set_state(AdminForm.waiting_for_key_generations)
+    await state.set_state(AdminForm.waiting_for_balance_grant)
     if callback.message is not None:
         await callback.message.answer(
-            "Новый ключ доступа\n\n"
-            "Какой баланс должен быть в ключе?\n"
-            "Например: <code>100</code>",
+            "Выдать баланс пользователю\n\n"
+            "Отправьте Telegram ID и сумму через пробел:\n"
+            "<code>1395002445 100</code>",
             reply_markup=admin_back_keyboard(),
         )
     await callback.answer()
 
 
-@router.message(AdminForm.waiting_for_key_generations)
-async def admin_save_key(message: Message, state: FSMContext, config: BotConfig) -> None:
+@router.message(AdminForm.waiting_for_balance_grant)
+async def admin_save_balance_grant(message: Message, state: FSMContext, config: BotConfig) -> None:
     if not _is_owner(message, config):
         await message.answer("У вас нет доступа к админ-панели.")
         return
-
     if message.text is None:
-        await message.answer("Отправьте сумму баланса числом.")
+        await message.answer("Отправьте Telegram ID и сумму текстом. Пример: <code>1395002445 100</code>")
         return
 
     try:
-        balance = _parse_balance(message.text)
+        user_id, amount = _parse_balance_grant(message.text)
     except ValueError as error:
         await message.answer(str(error))
         return
 
-    key = AccessService(config.access_users_path).create_key(balance)
+    access = AccessService(config.access_users_path)
+    new_balance = access.add_balance(user_id, amount)
     await state.clear()
     await message.answer(
-        "Ключ создан:\n"
-        f"<code>{key}</code>\n\n"
-        f"Баланс: <b>{balance}</b>.\n"
-        "Отправьте этот ключ пользователю. После активации ключ сгорит.",
+        "Баланс выдан.\n\n"
+        f"Пользователь: <code>{user_id}</code> ({access.format_user_label(user_id)})\n"
+        f"Начислено: <b>{amount}</b>\n"
+        f"Текущий баланс: <b>{new_balance}</b>",
         reply_markup=admin_panel_keyboard(),
     )
 
@@ -199,7 +208,6 @@ async def admin_save_prices(message: Message, state: FSMContext, config: BotConf
     if not _is_owner(message, config):
         await message.answer("У вас нет доступа к админ-панели.")
         return
-
     if message.text is None:
         await message.answer("Отправьте цены текстом. Пример: <code>40=10, 45=15, price=5, check=20</code>")
         return
@@ -240,7 +248,6 @@ async def admin_save_user(message: Message, state: FSMContext, config: BotConfig
     if not _is_owner(message, config):
         await message.answer("У вас нет доступа к админ-панели.")
         return
-
     if message.text is None:
         await message.answer("Отправьте Telegram ID числом.")
         return
@@ -256,9 +263,15 @@ async def admin_save_user(message: Message, state: FSMContext, config: BotConfig
     await state.clear()
 
     if was_added:
-        await message.answer(f"Доступ выдан пользователю <code>{user_id}</code>.", reply_markup=admin_panel_keyboard())
+        await message.answer(
+            f"Постоянный доступ выдан пользователю <code>{user_id}</code> ({access.format_user_label(user_id)}).",
+            reply_markup=admin_panel_keyboard(),
+        )
     else:
-        await message.answer(f"Пользователь <code>{user_id}</code> уже был в списке.", reply_markup=admin_panel_keyboard())
+        await message.answer(
+            f"Пользователь <code>{user_id}</code> ({access.format_user_label(user_id)}) уже был в списке.",
+            reply_markup=admin_panel_keyboard(),
+        )
 
 
 @router.callback_query(F.data == "admin:list_users")
@@ -270,15 +283,19 @@ async def admin_list_users(callback: CallbackQuery, config: BotConfig) -> None:
     access = AccessService(config.access_users_path)
     user_ids = access.list_user_ids()
     balances = access.list_balances()
+
     if callback.message is not None:
-        lines = [f"<code>{user_id}</code> — постоянный доступ" for user_id in user_ids]
+        lines = [
+            _format_user_line(access, user_id, "постоянный доступ")
+            for user_id in user_ids
+        ]
         quota_user_ids = [
             user_id
             for user_id, balance in balances.items()
             if balance > 0 and user_id not in user_ids
         ]
         lines.extend(
-            f"<code>{user_id}</code> — баланс: <b>{balance}</b>"
+            _format_user_line(access, user_id, f"баланс: <b>{balance}</b>")
             for user_id, balance in balances.items()
             if balance > 0 and user_id not in user_ids
         )
@@ -293,25 +310,6 @@ async def admin_list_users(callback: CallbackQuery, config: BotConfig) -> None:
     await callback.answer()
 
 
-@router.callback_query(F.data == "admin:list_keys")
-async def admin_list_keys(callback: CallbackQuery, config: BotConfig) -> None:
-    if not _is_owner_callback(callback, config):
-        await callback.answer("Нет доступа", show_alert=True)
-        return
-
-    keys = AccessService(config.access_users_path).list_keys()
-    if callback.message is not None:
-        if keys:
-            lines = [f"<code>{key}</code> — баланс <b>{balance}</b>" for key, balance in keys.items()]
-            await callback.message.answer(
-                "Активные ключи:\n" + "\n".join(lines),
-                reply_markup=access_keys_keyboard(list(keys)),
-            )
-        else:
-            await callback.message.answer("Активных ключей нет.", reply_markup=admin_panel_keyboard())
-    await callback.answer()
-
-
 @router.callback_query(F.data.startswith("admin:remove_user:"))
 async def admin_remove_user(callback: CallbackQuery, config: BotConfig) -> None:
     if not _is_owner_callback(callback, config):
@@ -320,10 +318,9 @@ async def admin_remove_user(callback: CallbackQuery, config: BotConfig) -> None:
 
     user_id = int((callback.data or "").rsplit(":", maxsplit=1)[1])
     was_removed = AccessService(config.access_users_path).remove_user(user_id)
-    user_ids = AccessService(config.access_users_path).list_user_ids()
 
     if callback.message is not None:
-        text = f"Доступ пользователя <code>{user_id}</code> удалён." if was_removed else "Пользователь не найден."
+        text = f"Постоянный доступ пользователя <code>{user_id}</code> удален." if was_removed else "Пользователь не найден."
         await callback.message.answer(text, reply_markup=admin_panel_keyboard())
     await callback.answer()
 
@@ -339,20 +336,5 @@ async def admin_clear_quota(callback: CallbackQuery, config: BotConfig) -> None:
 
     if callback.message is not None:
         text = f"Баланс пользователя <code>{user_id}</code> сброшен." if was_removed else "Баланс не найден."
-        await callback.message.answer(text, reply_markup=admin_panel_keyboard())
-    await callback.answer()
-
-
-@router.callback_query(F.data.startswith("admin:delete_key:"))
-async def admin_delete_key(callback: CallbackQuery, config: BotConfig) -> None:
-    if not _is_owner_callback(callback, config):
-        await callback.answer("Нет доступа", show_alert=True)
-        return
-
-    key = (callback.data or "").split(":", maxsplit=2)[2]
-    was_removed = AccessService(config.access_users_path).delete_key(key)
-
-    if callback.message is not None:
-        text = f"Ключ <code>{key}</code> удалён." if was_removed else "Ключ не найден."
         await callback.message.answer(text, reply_markup=admin_panel_keyboard())
     await callback.answer()

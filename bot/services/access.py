@@ -1,9 +1,8 @@
 from __future__ import annotations
 
 import json
-import secrets
-import string
 from pathlib import Path
+from typing import Any
 
 
 class AccessService:
@@ -12,18 +11,19 @@ class AccessService:
 
     def _read_data(self) -> dict:
         if not self.users_path.exists():
-            return {"user_ids": [], "quotas": {}, "keys": {}, "prices": {}}
+            return {"user_ids": [], "quotas": {}, "keys": {}, "prices": {}, "profiles": {}}
 
         try:
             data = json.loads(self.users_path.read_text(encoding="utf-8"))
         except (json.JSONDecodeError, OSError):
-            return {"user_ids": [], "quotas": {}, "keys": {}, "prices": {}}
+            return {"user_ids": [], "quotas": {}, "keys": {}, "prices": {}, "profiles": {}}
 
         return {
             "user_ids": data.get("user_ids", []),
             "quotas": data.get("quotas", {}),
             "keys": data.get("keys", {}),
             "prices": data.get("prices", {}),
+            "profiles": data.get("profiles", {}),
         }
 
     def _write_data(self, data: dict) -> None:
@@ -66,15 +66,63 @@ class AccessService:
     def list_balances(self) -> dict[int, int]:
         return self._read_quotas()
 
-    def list_keys(self) -> dict[str, int]:
+    def add_balance(self, user_id: int, amount: int) -> int:
+        if amount <= 0:
+            raise ValueError("Balance amount must be positive.")
+
+        quotas = self._read_quotas()
+        quotas[user_id] = quotas.get(user_id, 0) + amount
+        self._write_quotas(quotas)
+        return quotas[user_id]
+
+    def record_user_profile(
+        self,
+        user_id: int,
+        username: str | None = None,
+        first_name: str | None = None,
+        last_name: str | None = None,
+    ) -> None:
         data = self._read_data()
-        result: dict[str, int] = {}
-        for key, value in data.get("keys", {}).items():
-            try:
-                result[str(key)] = int(value.get("balance", value.get("generations")))
-            except (KeyError, TypeError, ValueError):
+        profiles: dict[str, Any] = data.get("profiles", {})
+        current = profiles.get(str(user_id), {})
+        current.update({
+            "username": username or current.get("username"),
+            "first_name": first_name or current.get("first_name"),
+            "last_name": last_name or current.get("last_name"),
+        })
+        profiles[str(user_id)] = {key: value for key, value in current.items() if value}
+        data["profiles"] = profiles
+        self._write_data(data)
+
+    def list_profiles(self) -> dict[int, dict[str, str]]:
+        data = self._read_data()
+        profiles: dict[int, dict[str, str]] = {}
+        for user_id, profile in data.get("profiles", {}).items():
+            if not isinstance(profile, dict):
                 continue
-        return dict(sorted(result.items()))
+            try:
+                profiles[int(user_id)] = {
+                    key: str(value)
+                    for key, value in profile.items()
+                    if key in {"username", "first_name", "last_name"} and value
+                }
+            except (TypeError, ValueError):
+                continue
+        return profiles
+
+    def format_user_label(self, user_id: int) -> str:
+        profile = self.list_profiles().get(user_id, {})
+        username = profile.get("username")
+        name = " ".join(
+            part for part in [profile.get("first_name"), profile.get("last_name")] if part
+        )
+        if username and name:
+            return f"@{username} ({name})"
+        if username:
+            return f"@{username}"
+        if name:
+            return name
+        return "username неизвестен"
 
     def get_generation_prices(self, defaults: dict[str, int]) -> dict[str, int]:
         data = self._read_data()
@@ -129,59 +177,6 @@ class AccessService:
         quotas.pop(user_id, None)
         self._write_quotas(quotas)
         return True
-
-    def create_key(self, balance: int) -> str:
-        if balance <= 0:
-            raise ValueError("Balance amount must be positive.")
-
-        alphabet = string.ascii_uppercase + string.digits
-        data = self._read_data()
-        keys = data.get("keys", {})
-
-        while True:
-            key = "KEY-" + "-".join(
-                "".join(secrets.choice(alphabet) for _ in range(4))
-                for _ in range(3)
-            )
-            if key not in keys:
-                break
-
-        keys[key] = {"balance": balance, "generations": balance}
-        data["keys"] = keys
-        self._write_data(data)
-        return key
-
-    def delete_key(self, key: str) -> bool:
-        normalized_key = key.strip().upper()
-        data = self._read_data()
-        keys = data.get("keys", {})
-        if normalized_key not in keys:
-            return False
-        keys.pop(normalized_key, None)
-        data["keys"] = keys
-        self._write_data(data)
-        return True
-
-    def activate_key(self, user_id: int, key: str) -> int | None:
-        normalized_key = key.strip().upper()
-        data = self._read_data()
-        keys = data.get("keys", {})
-        key_data = keys.get(normalized_key)
-        if key_data is None:
-            return None
-
-        try:
-            balance = int(key_data.get("balance", key_data.get("generations")))
-        except (KeyError, TypeError, ValueError):
-            return None
-
-        quotas = self._read_quotas()
-        quotas[user_id] = quotas.get(user_id, 0) + balance
-        keys.pop(normalized_key, None)
-        data["keys"] = keys
-        data["quotas"] = {str(item_user_id): value for item_user_id, value in sorted(quotas.items())}
-        self._write_data(data)
-        return quotas[user_id]
 
     def consume_balance(self, user_id: int, owner_ids: list[int], amount: int) -> bool:
         if user_id in owner_ids or user_id in self._read_user_ids():
