@@ -15,11 +15,26 @@ LABEL_TYPE_TITLES = {
 }
 
 
+LABEL_TYPE_ORDER = [
+    MAIN_LABEL_TYPE,
+    CLG2026_LABEL_TYPE,
+    PRICE_TAG_LABEL_TYPE,
+    RECEIPT_LABEL_TYPE,
+]
+
+
 def _label_with_price(label_type: str, prices: dict[str, int] | None) -> str:
     title = LABEL_TYPE_TITLES[label_type]
     if prices is None:
         return title
-    return f"{title} — {prices.get(label_type, 1)}"
+    return f"{title} - {prices.get(label_type, 1)}"
+
+
+def label_prices_text(prices: dict[str, int]) -> str:
+    return "\n".join(
+        f"{LABEL_TYPE_TITLES[label_type]}: <b>{prices.get(label_type, 1)}</b>"
+        for label_type in LABEL_TYPE_ORDER
+    )
 
 
 def label_type_keyboard(prices: dict[str, int] | None = None) -> InlineKeyboardMarkup:

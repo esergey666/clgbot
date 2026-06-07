@@ -15,6 +15,7 @@ from bot.keyboards import (
     PRICE_TAG_LABEL_TYPE,
     RECEIPT_LABEL_TYPE,
     access_denied_keyboard,
+    label_prices_text,
     label_type_keyboard,
     user_home_keyboard,
 )
@@ -62,6 +63,11 @@ def _get_generation_price(config: BotConfig, label_type: str) -> int:
 def _label_type_keyboard(config: BotConfig):
     prices = AccessService(config.access_users_path).get_generation_prices(DEFAULT_GENERATION_PRICES)
     return label_type_keyboard(prices)
+
+
+def _generation_prices_text(config: BotConfig) -> str:
+    prices = AccessService(config.access_users_path).get_generation_prices(DEFAULT_GENERATION_PRICES)
+    return label_prices_text(prices)
 
 
 def _get_generation_cost(config: BotConfig, label_type: str, count: int = 1) -> int:
@@ -637,7 +643,9 @@ async def handle_missing_label_type(message: Message, config: BotConfig) -> None
         return
 
     await message.answer(
-        "Сначала выберите, что сделать:",
+        "Сначала выберите, что сделать:\n\n"
+        "Стоимость генерации:\n"
+        f"{_generation_prices_text(config)}",
         reply_markup=_label_type_keyboard(config),
     )
 
@@ -915,7 +923,12 @@ async def handle_label_file(message: Message, state: FSMContext, config: BotConf
 
     label_type = await _get_selected_label_type(state)
     if label_type is None:
-        await message.answer("Сначала выберите, что сделать:", reply_markup=_label_type_keyboard(config))
+        await message.answer(
+            "Сначала выберите, что сделать:\n\n"
+            "Стоимость генерации:\n"
+            f"{_generation_prices_text(config)}",
+            reply_markup=_label_type_keyboard(config),
+        )
         await state.set_state(LabelForm.waiting_for_label_type)
         return
 
@@ -959,7 +972,12 @@ async def handle_label_data(message: Message, state: FSMContext, config: BotConf
 
     label_type = await _get_selected_label_type(state)
     if label_type is None:
-        await message.answer("Сначала выберите, что сделать:", reply_markup=_label_type_keyboard(config))
+        await message.answer(
+            "Сначала выберите, что сделать:\n\n"
+            "Стоимость генерации:\n"
+            f"{_generation_prices_text(config)}",
+            reply_markup=_label_type_keyboard(config),
+        )
         await state.set_state(LabelForm.waiting_for_label_type)
         return
 
