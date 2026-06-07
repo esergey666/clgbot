@@ -15,13 +15,20 @@ LABEL_TYPE_TITLES = {
 }
 
 
-def label_type_keyboard() -> InlineKeyboardMarkup:
+def _label_with_price(label_type: str, prices: dict[str, int] | None) -> str:
+    title = LABEL_TYPE_TITLES[label_type]
+    if prices is None:
+        return title
+    return f"{title} — {prices.get(label_type, 1)}"
+
+
+def label_type_keyboard(prices: dict[str, int] | None = None) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         inline_keyboard=[
-            [InlineKeyboardButton(text=LABEL_TYPE_TITLES[MAIN_LABEL_TYPE], callback_data=f"label_type:{MAIN_LABEL_TYPE}")],
-            [InlineKeyboardButton(text=LABEL_TYPE_TITLES[CLG2026_LABEL_TYPE], callback_data=f"label_type:{CLG2026_LABEL_TYPE}")],
-            [InlineKeyboardButton(text=LABEL_TYPE_TITLES[PRICE_TAG_LABEL_TYPE], callback_data=f"label_type:{PRICE_TAG_LABEL_TYPE}")],
-            [InlineKeyboardButton(text=LABEL_TYPE_TITLES[RECEIPT_LABEL_TYPE], callback_data=f"label_type:{RECEIPT_LABEL_TYPE}")],
+            [InlineKeyboardButton(text=_label_with_price(MAIN_LABEL_TYPE, prices), callback_data=f"label_type:{MAIN_LABEL_TYPE}")],
+            [InlineKeyboardButton(text=_label_with_price(CLG2026_LABEL_TYPE, prices), callback_data=f"label_type:{CLG2026_LABEL_TYPE}")],
+            [InlineKeyboardButton(text=_label_with_price(PRICE_TAG_LABEL_TYPE, prices), callback_data=f"label_type:{PRICE_TAG_LABEL_TYPE}")],
+            [InlineKeyboardButton(text=_label_with_price(RECEIPT_LABEL_TYPE, prices), callback_data=f"label_type:{RECEIPT_LABEL_TYPE}")],
             [
                 InlineKeyboardButton(text="Личный кабинет", callback_data="user:cabinet"),
                 InlineKeyboardButton(text="Назад", callback_data="user:home"),

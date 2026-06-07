@@ -59,6 +59,11 @@ def _get_generation_price(config: BotConfig, label_type: str) -> int:
     return AccessService(config.access_users_path).get_generation_prices(DEFAULT_GENERATION_PRICES).get(label_type, 1)
 
 
+def _label_type_keyboard(config: BotConfig):
+    prices = AccessService(config.access_users_path).get_generation_prices(DEFAULT_GENERATION_PRICES)
+    return label_type_keyboard(prices)
+
+
 def _get_generation_cost(config: BotConfig, label_type: str, count: int = 1) -> int:
     return _get_generation_price(config, label_type) * count
 
@@ -633,7 +638,7 @@ async def handle_missing_label_type(message: Message, config: BotConfig) -> None
 
     await message.answer(
         "Сначала выберите, что сделать:",
-        reply_markup=label_type_keyboard(),
+        reply_markup=_label_type_keyboard(config),
     )
 
 
@@ -910,7 +915,7 @@ async def handle_label_file(message: Message, state: FSMContext, config: BotConf
 
     label_type = await _get_selected_label_type(state)
     if label_type is None:
-        await message.answer("Сначала выберите, что сделать:", reply_markup=label_type_keyboard())
+        await message.answer("Сначала выберите, что сделать:", reply_markup=_label_type_keyboard(config))
         await state.set_state(LabelForm.waiting_for_label_type)
         return
 
@@ -954,7 +959,7 @@ async def handle_label_data(message: Message, state: FSMContext, config: BotConf
 
     label_type = await _get_selected_label_type(state)
     if label_type is None:
-        await message.answer("Сначала выберите, что сделать:", reply_markup=label_type_keyboard())
+        await message.answer("Сначала выберите, что сделать:", reply_markup=_label_type_keyboard(config))
         await state.set_state(LabelForm.waiting_for_label_type)
         return
 

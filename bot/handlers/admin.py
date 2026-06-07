@@ -1,4 +1,4 @@
-from aiogram import F, Router
+from aiogram import Bot, F, Router
 from aiogram.filters import Command
 from aiogram.fsm.context import FSMContext
 from aiogram.types import CallbackQuery, Message
@@ -115,6 +115,21 @@ def _admin_panel_text(config: BotConfig) -> str:
 
 def _format_user_line(access: AccessService, user_id: int, text: str) -> str:
     return f"<code>{user_id}</code> ({access.format_user_label(user_id)}) — {text}"
+
+
+async def _refresh_user_profiles(bot: Bot, access: AccessService, user_ids: list[int]) -> None:
+    for user_id in user_ids:
+        try:
+            chat = await bot.get_chat(user_id)
+        except Exception:
+            continue
+
+        access.record_user_profile(
+            user_id,
+            username=getattr(chat, "username", None),
+            first_name=getattr(chat, "first_name", None),
+            last_name=getattr(chat, "last_name", None),
+        )
 
 
 @router.message(Command("admin"))
@@ -275,7 +290,7 @@ async def admin_save_user(message: Message, state: FSMContext, config: BotConfig
 
 
 @router.callback_query(F.data == "admin:list_users")
-async def admin_list_users(callback: CallbackQuery, config: BotConfig) -> None:
+async def admin_list_users(callback: CallbackQuery, config: BotConfig, bot: Bot) -> None:
     if not _is_owner_callback(callback, config):
         await callback.answer("Нет доступа", show_alert=True)
         return
@@ -283,6 +298,8 @@ async def admin_list_users(callback: CallbackQuery, config: BotConfig) -> None:
     access = AccessService(config.access_users_path)
     user_ids = access.list_user_ids()
     balances = access.list_balances()
+    balance_user_ids = [user_id for user_id, balance in balances.items() if balance > 0]
+    await _refresh_user_profiles(bot, access, sorted(set(user_ids + balance_user_ids)))
 
     if callback.message is not None:
         lines = [
@@ -291,8 +308,8 @@ async def admin_list_users(callback: CallbackQuery, config: BotConfig) -> None:
         ]
         quota_user_ids = [
             user_id
-            for user_id, balance in balances.items()
-            if balance > 0 and user_id not in user_ids
+            for user_id in balance_user_ids
+            if user_id not in user_ids
         ]
         lines.extend(
             _format_user_line(access, user_id, f"баланс: <b>{balance}</b>")

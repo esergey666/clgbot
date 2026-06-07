@@ -5,6 +5,7 @@ from aiogram.types import CallbackQuery, Message, User
 
 from bot.config import BotConfig
 from bot.keyboards import access_denied_keyboard, cabinet_keyboard, label_type_keyboard, user_home_keyboard
+from bot.pricing import DEFAULT_GENERATION_PRICES
 from bot.services.access import AccessService
 from bot.states import LabelForm
 from bot.version import APP_VERSION
@@ -36,6 +37,11 @@ def _has_access(message: Message, config: BotConfig) -> bool:
         message.from_user.id,
         config.admin_ids,
     )
+
+
+def _label_type_keyboard(config: BotConfig):
+    prices = AccessService(config.access_users_path).get_generation_prices(DEFAULT_GENERATION_PRICES)
+    return label_type_keyboard(prices)
 
 
 def _cabinet_text(user_id: int, config: BotConfig) -> str:
@@ -134,7 +140,7 @@ async def user_generate(callback: CallbackQuery, state: FSMContext, config: BotC
 
     await state.set_state(LabelForm.waiting_for_label_type)
     if callback.message is not None:
-        await callback.message.answer("Что нужно сгенерировать?", reply_markup=label_type_keyboard())
+        await callback.message.answer("Что нужно сгенерировать?", reply_markup=_label_type_keyboard(config))
     await callback.answer()
 
 
