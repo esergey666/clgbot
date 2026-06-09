@@ -15,6 +15,8 @@ DATA_DIR = BASE_DIR / "data"
 class BotConfig:
     token: str
     admin_ids: list[int]
+    vision_api_key: str | None
+    vision_model: str
     template_path: Path
     font_path: Path
     number_font_path: Path
@@ -53,7 +55,7 @@ def _normalize_token(value: str | None) -> str | None:
 
 
 def load_config() -> BotConfig:
-    load_dotenv(BASE_DIR / ".env")
+    load_dotenv(BASE_DIR / ".env", override=True, encoding="utf-8-sig")
     token = _normalize_token(_get_env_value("BOT_TOKEN", "bot", "TOKEN"))
     if not token:
         raise RuntimeError("Telegram bot token is missing. Set BOT_TOKEN in environment variables.")
@@ -61,6 +63,8 @@ def load_config() -> BotConfig:
     return BotConfig(
         token=token,
         admin_ids=_parse_admin_ids(_get_env_value("ADMIN_IDS", "admins")),
+        vision_api_key=_get_env_value("OPENAI_API_KEY", "VISION_API_KEY") or "local",
+        vision_model=_get_env_value("OPENAI_VISION_MODEL", "VISION_MODEL") or "local-ocr",
         template_path=ASSETS_DIR / "back.png",
         font_path=ASSETS_DIR / "font.ttf",
         number_font_path=ASSETS_DIR / "num.ttf",

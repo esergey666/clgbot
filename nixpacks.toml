@@ -1,2 +1,2 @@
 [phases.setup]
-aptPkgs = ["libdmtx0b"]
+aptPkgs = ["libdmtx0b", "libdmtx-dev", "tesseract-ocr", "tesseract-ocr-eng"]

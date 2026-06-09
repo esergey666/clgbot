@@ -1,2 +1,4 @@
 libdmtx0b
 libdmtx-dev
+tesseract-ocr
+tesseract-ocr-eng

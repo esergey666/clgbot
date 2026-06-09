@@ -4,3 +4,7 @@ Pillow==11.2.1
 qrcode==8.2
 pylibdmtx==0.1.10
 numpy>=1.26,<3
+rapidocr==3.8.1
+onnxruntime==1.23.2
+pytesseract==0.3.13
+opencv-contrib-python-headless==4.11.0.86

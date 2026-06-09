@@ -1,3 +1,6 @@
+import base64
+import asyncio
+import html
 from io import BytesIO
 import logging
 from pathlib import Path
@@ -5,7 +8,7 @@ from zipfile import ZIP_DEFLATED, ZipFile
 
 from aiogram import Bot, F, Router
 from aiogram.fsm.context import FSMContext
-from aiogram.types import BufferedInputFile, CallbackQuery, Message
+from aiogram.types import BufferedInputFile, CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup, Message
 
 from bot.config import BotConfig
 from bot.keyboards import (
@@ -21,6 +24,7 @@ from bot.keyboards import (
 )
 from bot.pricing import DEFAULT_GENERATION_PRICES
 from bot.services.access import AccessService
+from bot.services.image_label_recognizer import ImageLabelRecognitionError, recognize_label_photos
 from bot.services.price_tag_renderer import PriceTagData, PriceTagRenderer, normalize_model_code
 from bot.services.receipt_renderer import ReceiptData, ReceiptRenderer
 from bot.states import LabelForm
@@ -75,16 +79,20 @@ def _get_generation_cost(config: BotConfig, label_type: str, count: int = 1) -> 
     return _get_generation_price(config, label_type) * count
 
 
-async def _try_consume_balance(message: Message, config: BotConfig, amount: int) -> bool:
-    if message.from_user is None:
+async def _try_consume_balance(message: Message, config: BotConfig, amount: int, user_id: int | None = None) -> bool:
+    payer_user_id = user_id
+    if payer_user_id is None and message.from_user is not None:
+        payer_user_id = message.from_user.id
+
+    if payer_user_id is None:
         await message.answer("Не удалось определить пользователя.")
         return False
 
     access = AccessService(config.access_users_path)
-    if access.consume_balance(message.from_user.id, config.admin_ids, amount):
+    if access.consume_balance(payer_user_id, config.admin_ids, amount):
         return True
 
-    remaining = access.get_balance(message.from_user.id)
+    remaining = access.get_balance(payer_user_id)
     await message.answer(
         f"Недостаточно баланса. Нужно: <b>{amount}</b>, осталось: <b>{remaining}</b>.\n"
         "Отправьте новый ключ доступа.",
@@ -93,15 +101,19 @@ async def _try_consume_balance(message: Message, config: BotConfig, amount: int)
     return False
 
 
-async def _send_remaining_balance(message: Message, config: BotConfig) -> None:
-    if message.from_user is None:
+async def _send_remaining_balance(message: Message, config: BotConfig, user_id: int | None = None) -> None:
+    payer_user_id = user_id
+    if payer_user_id is None and message.from_user is not None:
+        payer_user_id = message.from_user.id
+
+    if payer_user_id is None:
         return
 
     access = AccessService(config.access_users_path)
-    if message.from_user.id in config.admin_ids or message.from_user.id in access.list_user_ids():
+    if payer_user_id in config.admin_ids or payer_user_id in access.list_user_ids():
         return
 
-    remaining = access.get_balance(message.from_user.id)
+    remaining = access.get_balance(payer_user_id)
     await message.answer(f"Баланс: <b>{remaining}</b>")
 
 
@@ -144,11 +156,15 @@ def _parse_label_list(text: str, expected_parts: int) -> list[list[str]]:
 
 def _format_certilogo_code(certilogo_code: str) -> str:
     compact_code = certilogo_code.replace(" ", "")
+    if compact_code.upper().startswith("CLG"):
+        compact_code = compact_code[3:]
     return "  ".join([compact_code[i:i + 3] for i in range(0, len(compact_code), 3)])
 
 
 def _format_clg_code(certilogo_code: str) -> str:
     compact_code = certilogo_code.replace(" ", "")
+    if compact_code.upper().startswith("CLG"):
+        compact_code = compact_code[3:]
     return "  ".join([compact_code[i:i + 3] for i in range(0, len(compact_code), 3)])
 
 
@@ -158,6 +174,37 @@ def _get_label_type_name(label_type: str) -> str:
 
 def _get_label_file_slug(label_type: str) -> str:
     return LABEL_TYPE_FILE_SLUGS.get(label_type, LABEL_TYPE_FILE_SLUGS[MAIN_LABEL_TYPE])
+
+
+def _photo_label_confirmation_keyboard() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text="Сгенерировать бирку", callback_data="photo_label:generate")],
+            [InlineKeyboardButton(text="Отмена", callback_data="photo_label:cancel")],
+        ]
+    )
+
+
+PHOTO_FIELD_INDEXES = {
+    "art": 0,
+    "color": 1,
+    "size": 2,
+    "code": 3,
+    "certilogo_code": 4,
+    "certilogo_url": 5,
+}
+PHOTO_FIELD_TITLES = {
+    "art": "артикул",
+    "color": "цвет",
+    "size": "размер",
+    "code": "код",
+    "certilogo_code": "certilogo_code",
+    "certilogo_url": "certilogo_url",
+}
+
+
+def _photo_missing_format(missing_fields: list[str]) -> str:
+    return ", ".join(PHOTO_FIELD_TITLES.get(field, field) for field in missing_fields)
 
 
 def _get_label_format(label_type: str) -> str:
@@ -498,7 +545,13 @@ async def _generate_label_image(parts: list[str], label_type: str, config: BotCo
     return await _generate_main_label_image(parts, config)
 
 
-async def _send_single_label(message: Message, parts: list[str], label_type: str, config: BotConfig) -> bool:
+async def _send_single_label(
+    message: Message,
+    parts: list[str],
+    label_type: str,
+    config: BotConfig,
+    payer_user_id: int | None = None,
+) -> bool:
     logger.info("Single label request started: type=%s parts=%s", label_type, parts)
     missing_paths = _get_missing_asset_paths(label_type, config)
     if missing_paths:
@@ -508,7 +561,7 @@ async def _send_single_label(message: Message, parts: list[str], label_type: str
             + "\n".join(f"<code>{path}</code>" for path in missing_paths)
         )
         return False
-    if not await _try_consume_balance(message, config, _get_generation_cost(config, label_type)):
+    if not await _try_consume_balance(message, config, _get_generation_cost(config, label_type), payer_user_id):
         logger.info("Single label request stopped by balance check: type=%s", label_type)
         return False
 
@@ -533,7 +586,7 @@ async def _send_single_label(message: Message, parts: list[str], label_type: str
     )
     logger.info("Generated document sent: type=%s", label_type)
     await status_message.delete()
-    await _send_remaining_balance(message, config)
+    await _send_remaining_balance(message, config, payer_user_id)
     return True
 
 
@@ -922,6 +975,168 @@ async def handle_price_value(message: Message, state: FSMContext, config: BotCon
     await send_ui_message(message, state, "Готово. Можно создать следующий файл:", reply_markup=user_home_keyboard())
 
 
+async def _download_largest_photo(message: Message, bot: Bot) -> bytes | None:
+    if not message.photo:
+        return None
+
+    file_buffer = BytesIO()
+    await bot.download(message.photo[-1], destination=file_buffer)
+    return file_buffer.getvalue()
+
+
+@router.callback_query(LabelForm.waiting_for_label_data, F.data == "photo_label:generate")
+async def handle_photo_label_generate(callback: CallbackQuery, state: FSMContext, config: BotConfig) -> None:
+    if not _callback_has_access(callback, config):
+        await callback.answer("Нет доступа", show_alert=True)
+        return
+
+    label_type = await _get_selected_label_type(state)
+    data = await state.get_data()
+    parts = data.get("photo_label_parts")
+    if label_type is None or not isinstance(parts, list) or len(parts) != _get_expected_parts(label_type):
+        await callback.answer("Нет распознанных данных", show_alert=True)
+        return
+
+    if callback.message is None:
+        await callback.answer("Не удалось найти сообщение", show_alert=True)
+        return
+
+    was_sent = await _send_single_label(callback.message, parts, label_type, config, callback.from_user.id)
+    if not was_sent:
+        await callback.answer()
+        return
+
+    await state.update_data(photo_label_parts=None, first_label_photo=None, photo_label_partial=None, photo_label_missing=None)
+    await state.set_state(LabelForm.waiting_for_label_type)
+    await callback.message.answer("Готово. Можно создать следующий файл:", reply_markup=user_home_keyboard())
+    await callback.answer()
+
+
+@router.callback_query(LabelForm.waiting_for_label_data, F.data == "photo_label:cancel")
+async def handle_photo_label_cancel(callback: CallbackQuery, state: FSMContext, config: BotConfig) -> None:
+    if not _callback_has_access(callback, config):
+        await callback.answer("Нет доступа", show_alert=True)
+        return
+
+    label_type = await _get_selected_label_type(state) or MAIN_LABEL_TYPE
+    await state.update_data(photo_label_parts=None, first_label_photo=None, photo_label_partial=None, photo_label_missing=None)
+    if callback.message is not None:
+        await callback.message.answer(
+            "Отменил распознавание фото. Отправьте 2 фото заново или пришлите данные строкой:\n"
+            f"<code>{_get_label_format(label_type)}</code>"
+        )
+    await callback.answer()
+
+
+@router.message(LabelForm.waiting_for_label_data, F.photo)
+async def handle_label_photo(message: Message, state: FSMContext, config: BotConfig, bot: Bot) -> None:
+    if not _message_has_access(message, config):
+        await message.answer("У вас нет доступа к использованию этого бота.")
+        return
+
+    label_type = await _get_selected_label_type(state)
+    if label_type is None:
+        await send_ui_message(
+            message,
+            state,
+            "Сначала выберите, что сделать:\n\n"
+            "Стоимость генерации:\n"
+            f"{_generation_prices_text(config)}",
+            reply_markup=_label_type_keyboard(config),
+        )
+        await state.set_state(LabelForm.waiting_for_label_type)
+        return
+
+    photo_bytes = await _download_largest_photo(message, bot)
+    if photo_bytes is None:
+        await message.answer("Не удалось прочитать фото. Отправьте изображение еще раз.")
+        return
+
+    data = await state.get_data()
+    first_photo_base64 = data.get("first_label_photo")
+    if not first_photo_base64:
+        await state.update_data(
+            first_label_photo=base64.b64encode(photo_bytes).decode("ascii"),
+            photo_label_parts=None,
+            photo_label_partial=None,
+            photo_label_missing=None,
+        )
+        await message.answer("Принял первое фото. Теперь отправьте второе фото с Certilogo-кодом и QR-кодом.")
+        return
+
+    if not config.vision_api_key:
+        await state.update_data(first_label_photo=None, photo_label_parts=None, photo_label_partial=None, photo_label_missing=None)
+        await message.answer(
+            "Фото получил, но распознавание еще не настроено.\n\n"
+            "Добавьте в .env строку:\n"
+            "<code>OPENAI_API_KEY=ваш_ключ</code>\n\n"
+            "Пока можно отправить данные текстом:\n"
+            f"<code>{_get_label_format(label_type)}</code>"
+        )
+        return
+
+    status_message = await message.answer("Принял второе фото. Распознаю данные...")
+    first_photo = base64.b64decode(first_photo_base64)
+
+    try:
+        recognized = await asyncio.wait_for(
+            recognize_label_photos(
+                api_key=config.vision_api_key,
+                model=config.vision_model,
+                first_photo=first_photo,
+                second_photo=photo_bytes,
+            ),
+            timeout=35,
+        )
+    except asyncio.TimeoutError:
+        await state.update_data(first_label_photo=None, photo_label_parts=None)
+        await status_message.delete()
+        await message.answer(
+            "Р Р°СЃРїРѕР·РЅР°РІР°РЅРёРµ Р·Р°РЅСЏР»Рѕ СЃР»РёС€РєРѕРј РјРЅРѕРіРѕ РІСЂРµРјРµРЅРё.\n\n"
+            "РџРѕРїСЂРѕР±СѓР№С‚Рµ С„РѕС‚Рѕ Р±Р»РёР¶Рµ Рё СЂРѕРІРЅРµРµ РёР»Рё РїСЂРёС€Р»РёС‚Рµ РґР°РЅРЅС‹Рµ СЃС‚СЂРѕРєРѕР№:\n"
+            f"<code>{_get_label_format(label_type)}</code>"
+        )
+        return
+    except ImageLabelRecognitionError as error:
+        partial_data = getattr(error, "partial_data", None)
+        missing_fields = getattr(error, "missing_fields", [])
+        if partial_data is not None and (partial_data.color or partial_data.certilogo_code or partial_data.certilogo_url):
+            await state.update_data(
+                first_label_photo=None,
+                photo_label_parts=None,
+                photo_label_partial=partial_data.as_parts(),
+                photo_label_missing=missing_fields,
+            )
+            await status_message.delete()
+            await message.answer(
+                "Часть данных распознана:\n"
+                f"<code>{html.escape(partial_data.as_line())}</code>\n\n"
+                "Введите недостающие поля через запятую:\n"
+                f"<code>{html.escape(_photo_missing_format(missing_fields))}</code>\n\n"
+                "Пример: <code>761530404, 30, TOM068804</code>"
+            )
+            return
+
+        await state.update_data(first_label_photo=None, photo_label_parts=None)
+        await status_message.delete()
+        await message.answer(
+            f"Не удалось распознать фото: <code>{html.escape(str(error))}</code>\n\n"
+            "Можно отправить 2 фото еще раз или прислать данные строкой:\n"
+            f"<code>{_get_label_format(label_type)}</code>"
+        )
+        return
+
+    parts = recognized.as_parts()
+    await state.update_data(first_label_photo=None, photo_label_parts=parts, photo_label_partial=None, photo_label_missing=None)
+    await status_message.delete()
+    await message.answer(
+        "Нашел данные:\n"
+        f"<code>{recognized.as_line()}</code>\n\n"
+        "Если все верно, нажмите кнопку генерации. Если есть ошибка, нажмите отмену и отправьте строку вручную.",
+        reply_markup=_photo_label_confirmation_keyboard(),
+    )
+
+
 @router.message(LabelForm.waiting_for_label_data, F.document)
 async def handle_label_file(message: Message, state: FSMContext, config: BotConfig, bot: Bot) -> None:
     if not _message_has_access(message, config):
@@ -995,6 +1210,46 @@ async def handle_label_data(message: Message, state: FSMContext, config: BotConf
     if message.text is None:
         await message.answer(
             "Сообщение не содержит текст. Отправьте данные текстом или .txt файлом."
+        )
+        return
+
+    data = await state.get_data()
+    partial_parts = data.get("photo_label_partial")
+    missing_fields = data.get("photo_label_missing")
+    if isinstance(partial_parts, list) and isinstance(missing_fields, list) and missing_fields:
+        manual_parts = [part.strip() for part in message.text.strip().split(",")]
+        if len(manual_parts) == _get_expected_parts(label_type):
+            completed_parts = manual_parts
+        elif len(manual_parts) == len(missing_fields):
+            completed_parts = [str(part) for part in partial_parts]
+            for field, value in zip(missing_fields, manual_parts):
+                index = PHOTO_FIELD_INDEXES.get(field)
+                if index is not None:
+                    completed_parts[index] = value
+        else:
+            await message.answer(
+                "Нужно отправить недостающие поля через запятую:\n"
+                f"<code>{html.escape(_photo_missing_format(missing_fields))}</code>"
+            )
+            return
+
+        if any(not part for part in completed_parts):
+            await message.answer(
+                "Не все поля заполнены. Отправьте недостающие поля так:\n"
+                f"<code>{html.escape(_photo_missing_format(missing_fields))}</code>"
+            )
+            return
+
+        await state.update_data(
+            photo_label_partial=None,
+            photo_label_missing=None,
+            photo_label_parts=completed_parts,
+        )
+        await message.answer(
+            "Собрал данные:\n"
+            f"<code>{html.escape(', '.join(completed_parts))}</code>\n\n"
+            "Если все верно, нажмите кнопку генерации.",
+            reply_markup=_photo_label_confirmation_keyboard(),
         )
         return
 

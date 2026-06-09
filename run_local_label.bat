@@ -34,17 +34,6 @@ if errorlevel 1 (
     exit /b 1
 )
 
-echo Ensuring WeChat QR OpenCV build...
-".venv\Scripts\python.exe" -c "import cv2, sys; sys.exit(0 if hasattr(cv2, 'wechat_qrcode_WeChatQRCode') else 1)" >nul 2>nul
-if errorlevel 1 (
-    ".venv\Scripts\python.exe" -m pip install --force-reinstall --no-deps opencv-contrib-python-headless==4.11.0.86
-    if errorlevel 1 (
-        echo Failed to install OpenCV contrib build.
-        pause
-        exit /b 1
-    )
-)
-
-echo Starting bot...
-".venv\Scripts\python.exe" -m bot.main
+echo Generating local test label...
+".venv\Scripts\python.exe" -m bot.local_label --art 761530404 --color V0158 --size 30 --code TOM068804 --certilogo-code CLG047604293519 --certilogo-url https://certilogo.com/CLG047604293519 --output data\local_label.png
 pause
