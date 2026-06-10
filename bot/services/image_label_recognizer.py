@@ -177,30 +177,112 @@ def _read_qr(image_bytes: bytes) -> str:
     return _read_qr_with_wechat(image) or _read_qr_with_opencv(image)
 
 
+def _pil_from_cv_gray(image) -> Image.Image:
+    return Image.fromarray(image).convert("L")
+
+
+def _order_points(points):
+    import numpy as np
+
+    rect = np.zeros((4, 2), dtype="float32")
+    sums = points.sum(axis=1)
+    diffs = np.diff(points, axis=1)
+    rect[0] = points[np.argmin(sums)]
+    rect[2] = points[np.argmax(sums)]
+    rect[1] = points[np.argmin(diffs)]
+    rect[3] = points[np.argmax(diffs)]
+    return rect
+
+
+def _label_region_candidates(image_bytes: bytes) -> list[Image.Image]:
+    try:
+        import cv2
+        import numpy as np
+    except ImportError:
+        return []
+
+    image_array = np.frombuffer(image_bytes, dtype=np.uint8)
+    image = cv2.imdecode(image_array, cv2.IMREAD_GRAYSCALE)
+    if image is None:
+        return []
+
+    height, width = image.shape[:2]
+    blurred = cv2.GaussianBlur(image, (5, 5), 0)
+    _, mask = cv2.threshold(blurred, 145, 255, cv2.THRESH_BINARY)
+    kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (15, 15))
+    mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, kernel)
+
+    contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+    candidates: list[Image.Image] = []
+    min_area = width * height * 0.015
+    for contour in sorted(contours, key=cv2.contourArea, reverse=True)[:4]:
+        area = cv2.contourArea(contour)
+        if area < min_area:
+            continue
+
+        x, y, w, h = cv2.boundingRect(contour)
+        pad = int(max(w, h) * 0.08)
+        x1 = max(0, x - pad)
+        y1 = max(0, y - pad)
+        x2 = min(width, x + w + pad)
+        y2 = min(height, y + h + pad)
+        crop = image[y1:y2, x1:x2]
+        if crop.size:
+            candidates.append(_pil_from_cv_gray(crop))
+
+        rect = cv2.minAreaRect(contour)
+        box = cv2.boxPoints(rect)
+        ordered = _order_points(box)
+        rect_width = int(max(np.linalg.norm(ordered[2] - ordered[3]), np.linalg.norm(ordered[1] - ordered[0])))
+        rect_height = int(max(np.linalg.norm(ordered[1] - ordered[2]), np.linalg.norm(ordered[0] - ordered[3])))
+        if rect_width < 80 or rect_height < 80:
+            continue
+        target = np.array(
+            [[0, 0], [rect_width - 1, 0], [rect_width - 1, rect_height - 1], [0, rect_height - 1]],
+            dtype="float32",
+        )
+        matrix = cv2.getPerspectiveTransform(ordered, target)
+        warped = cv2.warpPerspective(image, matrix, (rect_width, rect_height), borderValue=255)
+        if warped.shape[0] > warped.shape[1]:
+            candidates.append(_pil_from_cv_gray(warped))
+        else:
+            candidates.append(_pil_from_cv_gray(cv2.rotate(warped, cv2.ROTATE_90_CLOCKWISE)))
+
+    return candidates
+
+
 def _prepare_for_tesseract(image_bytes: bytes) -> list[Image.Image]:
-    image = Image.open(BytesIO(image_bytes)).convert("L")
-    image = ImageOps.autocontrast(image)
-    width, height = image.size
-    if max(width, height) < 1800:
-        scale = 1800 / max(width, height)
-        image = image.resize((int(width * scale), int(height * scale)), Image.Resampling.LANCZOS)
-
-    sharp = image.filter(ImageFilter.SHARPEN)
-    binary = sharp.point(lambda value: 255 if value > 155 else 0)
-
     candidates: list[Image.Image] = []
     seen_sizes: set[tuple[int, int, int]] = set()
-    variants = (
-        (sharp, (0, -45, 45, 90, 270)),
-        (binary, (0,)),
-    )
-    for source, angles in variants:
-        for angle in angles:
-            candidate = source.rotate(angle, expand=True, fillcolor=255)
-            key = (candidate.width, candidate.height, angle)
-            if key not in seen_sizes:
-                seen_sizes.add(key)
-                candidates.append(candidate)
+    source_images = _label_region_candidates(image_bytes)
+    source_images.append(Image.open(BytesIO(image_bytes)).convert("L"))
+
+    for source_index, raw_image in enumerate(source_images[:3]):
+        image = ImageOps.autocontrast(raw_image)
+        width, height = image.size
+        if max(width, height) < 1800:
+            scale = 1800 / max(width, height)
+            image = image.resize((int(width * scale), int(height * scale)), Image.Resampling.LANCZOS)
+
+        sharp = image.filter(ImageFilter.SHARPEN)
+        angles = (0,) if source_index < 2 else (0, -45, 45)
+        variants = ((sharp, angles),)
+        for source, angles in variants:
+            for angle in angles:
+                candidate = source.rotate(angle, expand=True, fillcolor=255)
+                key = (candidate.width, candidate.height, angle)
+                if key not in seen_sizes:
+                    seen_sizes.add(key)
+                    candidates.append(candidate)
+                    if len(candidates) >= 8:
+                        return candidates
+
+    binary = ImageOps.autocontrast(source_images[0]).point(lambda value: 255 if value > 155 else 0) if source_images else None
+    if binary is not None:
+        candidate = binary.rotate(0, expand=True, fillcolor=255)
+        key = (candidate.width, candidate.height, 0)
+        if key not in seen_sizes:
+            candidates.append(candidate)
     return candidates
 
 
