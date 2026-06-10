@@ -296,10 +296,29 @@ def _image_to_png_bytes(image: Image.Image) -> bytes:
     return buffer.getvalue()
 
 
+def _resize_for_ocr(image: Image.Image, max_side: int) -> Image.Image:
+    width, height = image.size
+    if max(width, height) <= max_side:
+        return image
+    scale = max_side / max(width, height)
+    return image.resize((int(width * scale), int(height * scale)), Image.Resampling.LANCZOS)
+
+
 def _rapidocr_candidate_bytes(image_bytes: bytes) -> list[bytes]:
-    candidates = [image_bytes]
+    max_side = int(getenv("RAPIDOCR_IMAGE_MAX_SIDE", "1100"))
+    candidates: list[bytes] = []
+    seen_sizes: set[tuple[int, int]] = set()
+
     for image in _label_region_candidates(image_bytes)[:2]:
-        candidates.append(_image_to_png_bytes(image))
+        resized = _resize_for_ocr(image.convert("RGB"), max_side)
+        seen_sizes.add(resized.size)
+        candidates.append(_image_to_png_bytes(resized))
+
+    original = Image.open(BytesIO(image_bytes)).convert("RGB")
+    resized_original = _resize_for_ocr(original, max_side)
+    if resized_original.size not in seen_sizes:
+        candidates.append(_image_to_png_bytes(resized_original))
+
     return candidates
 
 

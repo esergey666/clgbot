@@ -20,7 +20,9 @@ RECONNECT_DELAY_SECONDS = 15
 async def main() -> None:
     config = load_config()
     logging.info("Bot app version: %s", APP_VERSION)
-    logging.info("OCR engine: %s", os.getenv("OCR_ENGINE", "rapidocr"))
+    ocr_env = os.getenv("OCR_ENGINE", "rapidocr")
+    effective_ocr = "tesseract_only" if ocr_env == "tesseract_only" else "rapidocr"
+    logging.info("OCR engine: %s (env: %s)", effective_ocr, ocr_env)
     dp = Dispatcher(storage=MemoryStorage(), config=config)
     dp.include_router(setup_routers())
 
