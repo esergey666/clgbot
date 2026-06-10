@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 from dataclasses import dataclass
 from io import BytesIO
+import logging
 from os import getenv
 import os
 from pathlib import Path
@@ -13,6 +14,9 @@ import tempfile
 from PIL import Image, ImageFilter, ImageOps
 
 from bot.config import ASSETS_DIR
+
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -286,6 +290,19 @@ def _prepare_for_tesseract(image_bytes: bytes) -> list[Image.Image]:
     return candidates
 
 
+def _image_to_png_bytes(image: Image.Image) -> bytes:
+    buffer = BytesIO()
+    image.save(buffer, format="PNG")
+    return buffer.getvalue()
+
+
+def _rapidocr_candidate_bytes(image_bytes: bytes) -> list[bytes]:
+    candidates = [image_bytes]
+    for image in _label_region_candidates(image_bytes)[:2]:
+        candidates.append(_image_to_png_bytes(image))
+    return candidates
+
+
 def _rapidocr_text(image_bytes: bytes) -> str:
     global _RAPIDOCR_ENGINE
 
@@ -310,21 +327,28 @@ def _rapidocr_text(image_bytes: bytes) -> str:
             }
         )
 
-    try:
-        result = _RAPIDOCR_ENGINE(image_bytes)
-    except Exception:
-        return ""
-
-    txts = getattr(result, "txts", None)
-    scores = getattr(result, "scores", None)
-    if not txts:
-        return ""
-
     chunks: list[str] = []
-    for index, text in enumerate(txts):
-        score = scores[index] if scores and index < len(scores) else 1.0
-        if text and score >= 0.35:
-            chunks.append(str(text))
+    seen: set[str] = set()
+    for candidate in _rapidocr_candidate_bytes(image_bytes):
+        try:
+            result = _RAPIDOCR_ENGINE(candidate)
+        except Exception:
+            continue
+
+        txts = getattr(result, "txts", None)
+        scores = getattr(result, "scores", None)
+        if not txts:
+            continue
+
+        for index, text in enumerate(txts):
+            score = scores[index] if scores and index < len(scores) else 1.0
+            clean_text = str(text).strip()
+            if clean_text and score >= 0.35 and clean_text not in seen:
+                seen.add(clean_text)
+                chunks.append(clean_text)
+
+        if len("".join(chunks)) >= 30:
+            break
     return "\n".join(chunks)
 
 
@@ -461,6 +485,13 @@ def _recognize_label_photos_sync(
         if not value
     ]
     if missing:
+        logger.info(
+            "Photo OCR missing fields %s; first=%s; second=%s; qr=%s",
+            ",".join(missing),
+            _debug_snippet("OCR 1", first_text, limit=250),
+            _debug_snippet("OCR 2", second_text, limit=250),
+            qr_data or "-",
+        )
         raise ImageLabelRecognitionError(
             "не удалось найти поля: "
             + ", ".join(missing)
