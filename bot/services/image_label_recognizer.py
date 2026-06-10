@@ -356,6 +356,9 @@ def _tesseract_text(image_bytes: bytes) -> str:
 
 def _ocr_text(image_bytes: bytes) -> str:
     rapid_text = _rapidocr_text(image_bytes)
+    if rapid_text and getenv("OCR_ENGINE", "").strip().lower() != "tesseract":
+        return rapid_text
+
     tesseract_text = _tesseract_text(image_bytes)
 
     if rapid_text and tesseract_text:
