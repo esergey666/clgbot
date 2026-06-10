@@ -289,7 +289,7 @@ def _prepare_for_tesseract(image_bytes: bytes) -> list[Image.Image]:
 def _rapidocr_text(image_bytes: bytes) -> str:
     global _RAPIDOCR_ENGINE
 
-    if getenv("OCR_ENGINE", "").strip().lower() == "tesseract":
+    if getenv("OCR_ENGINE", "").strip().lower() == "tesseract_only":
         return ""
 
     try:
@@ -356,7 +356,7 @@ def _tesseract_text(image_bytes: bytes) -> str:
 
 def _ocr_text(image_bytes: bytes) -> str:
     rapid_text = _rapidocr_text(image_bytes)
-    if rapid_text and getenv("OCR_ENGINE", "").strip().lower() != "tesseract":
+    if rapid_text:
         return rapid_text
 
     tesseract_text = _tesseract_text(image_bytes)
