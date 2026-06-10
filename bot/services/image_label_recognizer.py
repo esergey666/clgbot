@@ -181,16 +181,27 @@ def _prepare_for_tesseract(image_bytes: bytes) -> list[Image.Image]:
     image = Image.open(BytesIO(image_bytes)).convert("L")
     image = ImageOps.autocontrast(image)
     width, height = image.size
-    if max(width, height) < 1800:
-        scale = 1800 / max(width, height)
+    if max(width, height) < 2200:
+        scale = 2200 / max(width, height)
         image = image.resize((int(width * scale), int(height * scale)), Image.Resampling.LANCZOS)
 
     sharp = image.filter(ImageFilter.SHARPEN)
-    return [
-        sharp,
-        sharp.rotate(90, expand=True),
-        sharp.rotate(270, expand=True),
-    ]
+    binary = sharp.point(lambda value: 255 if value > 155 else 0)
+
+    candidates: list[Image.Image] = []
+    seen_sizes: set[tuple[int, int, int]] = set()
+    variants = (
+        (sharp, (0, -60, -45, -30, 30, 45, 60, 90, 270)),
+        (binary, (0, -45, 45)),
+    )
+    for source, angles in variants:
+        for angle in angles:
+            candidate = source.rotate(angle, expand=True, fillcolor=255)
+            key = (candidate.width, candidate.height, angle)
+            if key not in seen_sizes:
+                seen_sizes.add(key)
+                candidates.append(candidate)
+    return candidates
 
 
 def _rapidocr_text(image_bytes: bytes) -> str:
@@ -247,10 +258,13 @@ def _tesseract_text(image_bytes: bytes) -> str:
 
     pytesseract.pytesseract.tesseract_cmd = tesseract_path
     chunks: list[str] = []
-    for image in _prepare_for_tesseract(image_bytes):
-        for config in ("--psm 6", "--psm 11"):
+    for index, image in enumerate(_prepare_for_tesseract(image_bytes)):
+        configs = ["--psm 6 -c tessedit_char_whitelist=ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789./:"]
+        if index < 3:
+            configs.append("--psm 11")
+        for config in configs:
             try:
-                text = pytesseract.image_to_string(image, config=config, timeout=3)
+                text = pytesseract.image_to_string(image, config=config, timeout=2)
             except RuntimeError:
                 continue
             if text.strip():
