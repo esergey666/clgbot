@@ -4,6 +4,7 @@ import asyncio
 from dataclasses import dataclass
 from io import BytesIO
 from os import getenv
+import os
 from pathlib import Path
 import re
 import shutil
@@ -195,13 +196,26 @@ def _prepare_for_tesseract(image_bytes: bytes) -> list[Image.Image]:
 def _rapidocr_text(image_bytes: bytes) -> str:
     global _RAPIDOCR_ENGINE
 
+    if getenv("OCR_ENGINE", "").strip().lower() == "tesseract":
+        return ""
+
     try:
         from rapidocr import RapidOCR
     except ImportError:
         return ""
 
     if _RAPIDOCR_ENGINE is None:
-        _RAPIDOCR_ENGINE = RapidOCR()
+        os.environ.setdefault("OMP_NUM_THREADS", "1")
+        os.environ.setdefault("OPENBLAS_NUM_THREADS", "1")
+        os.environ.setdefault("MKL_NUM_THREADS", "1")
+        _RAPIDOCR_ENGINE = RapidOCR(
+            params={
+                "Global.max_side_len": 1280,
+                "EngineConfig.onnxruntime.intra_op_num_threads": 1,
+                "EngineConfig.onnxruntime.inter_op_num_threads": 1,
+                "EngineConfig.onnxruntime.enable_cpu_mem_arena": False,
+            }
+        )
 
     try:
         result = _RAPIDOCR_ENGINE(image_bytes)

@@ -11,6 +11,23 @@ bot=токен_telegram_бота
 admins=ваш_telegram_id
 ```
 
+Рекомендуется для маленьких тарифов:
+
+```env
+OMP_NUM_THREADS=1
+OPENBLAS_NUM_THREADS=1
+MKL_NUM_THREADS=1
+NUMEXPR_NUM_THREADS=1
+```
+
+Если хостинг перезапускает процесс во время распознавания фото из-за нехватки памяти, временно отключите RapidOCR:
+
+```env
+OCR_ENGINE=tesseract
+```
+
+Лучше использовать тариф с памятью от 1 GB, потому что RapidOCR и ONNXRuntime заметно тяжелее обычного Tesseract.
+
 `OPENAI_API_KEY` не нужен. Распознавание фото работает бесплатно через RapidOCR, Tesseract OCR и OpenCV.
 QR сначала читается через WeChat QR detector, затем через обычный OpenCV QR detector.
 
