@@ -181,8 +181,8 @@ def _prepare_for_tesseract(image_bytes: bytes) -> list[Image.Image]:
     image = Image.open(BytesIO(image_bytes)).convert("L")
     image = ImageOps.autocontrast(image)
     width, height = image.size
-    if max(width, height) < 2200:
-        scale = 2200 / max(width, height)
+    if max(width, height) < 1800:
+        scale = 1800 / max(width, height)
         image = image.resize((int(width * scale), int(height * scale)), Image.Resampling.LANCZOS)
 
     sharp = image.filter(ImageFilter.SHARPEN)
@@ -191,8 +191,8 @@ def _prepare_for_tesseract(image_bytes: bytes) -> list[Image.Image]:
     candidates: list[Image.Image] = []
     seen_sizes: set[tuple[int, int, int]] = set()
     variants = (
-        (sharp, (0, -60, -45, -30, 30, 45, 60, 90, 270)),
-        (binary, (0, -45, 45)),
+        (sharp, (0, -45, 45, 90, 270)),
+        (binary, (0,)),
     )
     for source, angles in variants:
         for angle in angles:
@@ -260,11 +260,11 @@ def _tesseract_text(image_bytes: bytes) -> str:
     chunks: list[str] = []
     for index, image in enumerate(_prepare_for_tesseract(image_bytes)):
         configs = ["--psm 6 -c tessedit_char_whitelist=ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789./:"]
-        if index < 3:
+        if index == 0:
             configs.append("--psm 11")
         for config in configs:
             try:
-                text = pytesseract.image_to_string(image, config=config, timeout=2)
+                text = pytesseract.image_to_string(image, config=config, timeout=1)
             except RuntimeError:
                 continue
             if text.strip():

@@ -1086,14 +1086,14 @@ async def handle_label_photo(message: Message, state: FSMContext, config: BotCon
                 first_photo=first_photo,
                 second_photo=photo_bytes,
             ),
-            timeout=35,
+            timeout=25,
         )
     except asyncio.TimeoutError:
         await state.update_data(first_label_photo=None, photo_label_parts=None)
         await status_message.delete()
         await message.answer(
-            "Р Р°СЃРїРѕР·РЅР°РІР°РЅРёРµ Р·Р°РЅСЏР»Рѕ СЃР»РёС€РєРѕРј РјРЅРѕРіРѕ РІСЂРµРјРµРЅРё.\n\n"
-            "РџРѕРїСЂРѕР±СѓР№С‚Рµ С„РѕС‚Рѕ Р±Р»РёР¶Рµ Рё СЂРѕРІРЅРµРµ РёР»Рё РїСЂРёС€Р»РёС‚Рµ РґР°РЅРЅС‹Рµ СЃС‚СЂРѕРєРѕР№:\n"
+            "Распознавание заняло слишком много времени.\n\n"
+            "Попробуйте фото ближе и ровнее или пришлите данные строкой:\n"
             f"<code>{_get_label_format(label_type)}</code>"
         )
         return
