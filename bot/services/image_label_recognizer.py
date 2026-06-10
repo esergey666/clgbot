@@ -275,8 +275,8 @@ def _debug_snippet(label: str, text: str, limit: int = 500) -> str:
 def _extract_first_photo(text: str) -> tuple[str, str, str, str]:
     compact = _compact(text)
     art = _find_first([
+        r"(K\d[A-Z]\d{8,10}[A-Z]\d{3,5})",
         r"ART\.?([A-Z0-9]{8,24}?)(?=V\d{4}|[A-Z]\d{4}|TG|T9|SIZE|$)",
-        r"(K\d[A-Z]\d{8,10}[A-Z0-9]{3,8})",
         r"(\d{8,10})",
     ], compact)
     color = _find_first([r"(V\d{4})", r"([A-Z]\d{4})"], compact)
@@ -287,8 +287,8 @@ def _extract_first_photo(text: str) -> tuple[str, str, str, str]:
         r"[^A-Z](XXXL|XXL|XL|XS|XXS|S|M|L)[^A-Z]",
     ], compact)
     code = _find_first([
-        r"(\d{2}PROM\d{8,12})",
-        r"(PROM\d{8,12})",
+        r"(\d{2}PRO[CM]\d{8,12})",
+        r"(PRO[CM]\d{8,12})",
         r"(TOM\d{5,12})",
         r"([A-Z]{2,5}\d{5,12})",
     ], compact)
