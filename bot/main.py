@@ -1,5 +1,6 @@
 import asyncio
 import logging
+import os
 import sys
 
 from aiogram import Bot, Dispatcher
@@ -19,6 +20,7 @@ RECONNECT_DELAY_SECONDS = 15
 async def main() -> None:
     config = load_config()
     logging.info("Bot app version: %s", APP_VERSION)
+    logging.info("OCR engine: %s", os.getenv("OCR_ENGINE", "rapidocr"))
     dp = Dispatcher(storage=MemoryStorage(), config=config)
     dp.include_router(setup_routers())
 

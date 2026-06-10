@@ -46,5 +46,6 @@ if errorlevel 1 (
 )
 
 echo Starting bot...
+set "OCR_ENGINE=rapidocr"
 ".venv\Scripts\python.exe" -m bot.main
 pause

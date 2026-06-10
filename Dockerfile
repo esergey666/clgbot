@@ -6,6 +6,7 @@ ENV OMP_NUM_THREADS=1
 ENV OPENBLAS_NUM_THREADS=1
 ENV MKL_NUM_THREADS=1
 ENV NUMEXPR_NUM_THREADS=1
+ENV OCR_ENGINE=tesseract
 
 WORKDIR /app
 
@@ -21,8 +22,7 @@ RUN apt-get update \
 COPY requirements.txt .
 RUN pip install --no-cache-dir --upgrade pip \
     && pip install --no-cache-dir -r requirements.txt \
-    && pip install --no-cache-dir --force-reinstall --no-deps opencv-contrib-python-headless==4.11.0.86 \
-    && python -c "from rapidocr import RapidOCR; RapidOCR()"
+    && pip install --no-cache-dir --force-reinstall --no-deps opencv-contrib-python-headless==4.11.0.86
 
 COPY . .
 
