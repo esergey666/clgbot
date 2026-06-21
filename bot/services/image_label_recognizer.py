@@ -481,8 +481,8 @@ def _extract_first_photo(text: str, label_type: str = MAIN_LABEL_TYPE) -> tuple[
     compact = _compact(text)
     if label_type == CLG2026_LABEL_TYPE:
         art = _find_first([
-            r"ART(?:ICLE|ICOLO|ICOL)?\.?([A-Z0-9]{17})(?=COLOR|COLOUR|COL|TG|T9|SIZE|$)",
-            r"(K[A-Z0-9]{16})",
+            r"ART(?:ICLE|ICOLO|ICOL)?\.?([A-Z0-9]{17})",
+            r"([KL][A-Z0-9]{16})",
         ], compact)
         code = _extract_45mm_batch_code(compact, art)
     else:

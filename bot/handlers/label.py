@@ -218,7 +218,7 @@ def _photo_missing_example(label_type: str, missing_fields: list[str]) -> str:
             "certilogo_url": "http://certilogo.com/qr/14GSH3AB5W",
         },
         CLG2026_LABEL_TYPE: {
-            "art": "K2S151100008S00J8",
+            "art": "L1S155100021S01B9",
             "color": "VJ200",
             "size": "XXL",
             "code": "99PROI20250007668",
