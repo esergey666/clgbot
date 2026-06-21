@@ -129,7 +129,8 @@ class Clg2026Generator:
         draw.text(self._pos(187, 350), data.size, font=arial_bold, fill="black")
         draw.text(self._pos(100, 414), data.code, font=arial, fill="black")
 
-        datamatrix_data = f"{data.art}-{data.color}-{data.size}-{data.code}-{certilogo_code}"
+        datamatrix_certilogo_code = " ".join(certilogo_code.split())
+        datamatrix_data = f"{data.art}-{data.color}-{data.size}-{data.code}-{datamatrix_certilogo_code}"
         self._add_datamatrix(img, datamatrix_data, (153, 570), 226)
 
         self._draw_spaced_text(

@@ -151,7 +151,8 @@ class LabelGenerator:
         self.template.paste(img, position, img.convert("RGBA"))
 
     async def generate_label(self, art, color, size_tag, code, certilogo_code, certilogo_url):
-        certilogo_datemark: str = f"{art}-{color}-{size_tag}-{code}-{certilogo_code}"
+        datamatrix_certilogo_code = " ".join(certilogo_code.split())
+        certilogo_datemark: str = f"{art}-{color}-{size_tag}-{code}-{datamatrix_certilogo_code}"
 
         await self.draw_text(self._fit_pos((504, 1015)), art, ImageFont.truetype(self.font_path, self._fit(210)))
         await self.draw_text(self._fit_pos((504, 1364)), color, ImageFont.truetype(self.font_path, self._fit(310)))

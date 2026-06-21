@@ -1,0 +1,13 @@
+.git
+.gitignore
+.env
+.venv
+venv
+__pycache__
+*.py[cod]
+*.log
+.idea
+.agents
+.codex
+data/*
+!data/.gitkeep

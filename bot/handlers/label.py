@@ -1085,6 +1085,7 @@ async def handle_label_photo(message: Message, state: FSMContext, config: BotCon
                 model=config.vision_model,
                 first_photo=first_photo,
                 second_photo=photo_bytes,
+                label_type=label_type,
             ),
             timeout=25,
         )

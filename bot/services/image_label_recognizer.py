@@ -63,6 +63,9 @@ WECHAT_QR_FILES = {
 }
 WECHAT_QR_ASCII_DIR = Path(tempfile.gettempdir()) / "stone_label_wechat_qr"
 _RAPIDOCR_ENGINE = None
+MAIN_LABEL_TYPE = "main"
+CLG2026_LABEL_TYPE = "clg2026"
+CERTILOGO_URL_PATTERN = r"http://certilogo\.com/qr/[A-Z0-9]{10}"
 
 
 def _find_tesseract() -> str:
@@ -428,25 +431,34 @@ def _debug_snippet(label: str, text: str, limit: int = 500) -> str:
     return f"{label}: {cleaned or '-'}"
 
 
-def _extract_first_photo(text: str) -> tuple[str, str, str, str]:
+def _extract_first_photo(text: str, label_type: str = MAIN_LABEL_TYPE) -> tuple[str, str, str, str]:
     compact = _compact(text)
-    art = _find_first([
-        r"(K\d[A-Z]\d{8,10}[A-Z]\d{3,5})",
-        r"ART\.?([A-Z0-9]{8,24}?)(?=V\d{4}|[A-Z]\d{4}|TG|T9|SIZE|$)",
-        r"(\d{8,10})",
+    if label_type == CLG2026_LABEL_TYPE:
+        art = _find_first([
+            r"ART(?:ICLE|ICOLO|ICOL)?\.?([A-Z0-9]{17})(?=COLOR|COLOUR|COL|TG|T9|SIZE|$)",
+            r"(K[A-Z0-9]{16})",
+        ], compact)
+        code = _find_first([
+            r"(?:LOT|BATCH|CODE|COD)\.?([A-Z0-9]{17})",
+            r"(\d{2}PRO[CM][A-Z0-9]{11})",
+            r"(PRO[CM][A-Z0-9]{13})",
+        ], compact)
+    else:
+        art = _find_first([
+            r"ART(?:ICLE|ICOLO|ICOL)?\.?(\d{9})(?!\d)",
+            r"(?<!\d)(\d{9})(?!\d)",
+        ], compact)
+        code = _find_first([r"(TOM\d{6})(?!\d)"], compact)
+
+    color = _find_first([
+        r"(?:COLOR|COLOUR|COL)\.?([A-Z0-9]{5})",
+        r"(V[A-Z0-9]{4})",
+        r"([A-Z]\d{4})",
     ], compact)
-    color = _find_first([r"(V\d{4})", r"([A-Z]\d{4})"], compact)
     size = _find_first([
-        r"TG\.?(XXXL|XXL|XL|XS|XXS|S|M|L|\d{1,3})",
-        r"T9\.?(XXXL|XXL|XL|XS|XXS|S|M|L|\d{1,3})",
-        r"SIZE\.?(XXXL|XXL|XL|XS|XXS|S|M|L|\d{1,3})",
-        r"[^A-Z](XXXL|XXL|XL|XS|XXS|S|M|L)[^A-Z]",
-    ], compact)
-    code = _find_first([
-        r"(\d{2}PRO[CM]\d{8,12})",
-        r"(PRO[CM]\d{8,12})",
-        r"(TOM\d{5,12})",
-        r"([A-Z]{2,5}\d{5,12})",
+        r"TG\.?(3XL|XXL|XL|S|M|L)(?=TOM|LOT|BATCH|CODE|COD|CLG|HTTP|$)",
+        r"T9\.?(3XL|XXL|XL|S|M|L)(?=TOM|LOT|BATCH|CODE|COD|CLG|HTTP|$)",
+        r"SIZE\.?(3XL|XXL|XL|S|M|L)(?=TOM|LOT|BATCH|CODE|COD|CLG|HTTP|$)",
     ], compact)
 
     if code in {art, color}:
@@ -456,16 +468,18 @@ def _extract_first_photo(text: str) -> tuple[str, str, str, str]:
 
 
 def _extract_second_photo(text: str, qr_data: str) -> tuple[str, str]:
-    compact = _compact(text)
-    certilogo_code = _find_first([r"(CLG\d{9,15})", r"CLG[^0-9]*(\d{9,15})", r"(\d{12,15})"], compact + _compact(qr_data))
+    combined = _compact(text) + "\n" + _compact(qr_data)
+    certilogo_code = _find_first([
+        r"(CLG\d{12})(?!\d)",
+        r"CLG[^0-9]*(\d{12})(?!\d)",
+        r"(?<!\d)(\d{12})(?!\d)",
+    ], combined)
     if certilogo_code.startswith("CLG"):
         certilogo_code = certilogo_code[3:]
 
-    certilogo_url = qr_data
-    if not certilogo_code and qr_data:
-        certilogo_code = _find_first([r"/QR/([A-Z0-9]+)", r"QR/([A-Z0-9]+)", r"/([A-Z0-9]{8,20})$"], _compact(qr_data))
-    if not certilogo_url and certilogo_code:
-        certilogo_url = f"https://certilogo.com/{certilogo_code}"
+    certilogo_url = _find_first([f"({CERTILOGO_URL_PATTERN})"], combined)
+    if certilogo_url:
+        certilogo_url = "http://certilogo.com/qr/" + certilogo_url.rsplit("/", maxsplit=1)[-1].upper()
 
     return certilogo_code, certilogo_url
 
@@ -474,12 +488,13 @@ def _recognize_label_photos_sync(
     *,
     first_photo: bytes,
     second_photo: bytes,
+    label_type: str = MAIN_LABEL_TYPE,
 ) -> ImageLabelData:
     first_text = _ocr_text(first_photo)
     qr_data = _read_qr(second_photo)
     second_text = _ocr_text(second_photo)
 
-    art, color, size, code = _extract_first_photo(first_text)
+    art, color, size, code = _extract_first_photo(first_text, label_type)
     certilogo_code, certilogo_url = _extract_second_photo(second_text, qr_data)
 
     data = ImageLabelData(
@@ -533,9 +548,11 @@ async def recognize_label_photos(
     model: str | None = None,
     first_photo: bytes,
     second_photo: bytes,
+    label_type: str = MAIN_LABEL_TYPE,
 ) -> ImageLabelData:
     return await asyncio.to_thread(
         _recognize_label_photos_sync,
         first_photo=first_photo,
         second_photo=second_photo,
+        label_type=label_type,
     )
