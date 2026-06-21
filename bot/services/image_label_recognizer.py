@@ -452,6 +452,26 @@ def _normalize_label_size(value: str) -> str:
     }.get(value, value)
 
 
+def _extract_45mm_batch_code(compact: str, art: str) -> str:
+    code = _find_first([
+        r"(?:LOT|BATCH|CODE|COD)\.?([A-Z0-9]{17})(?![A-Z0-9])",
+        r"(?:T[GQ9]|SIZE)\.?(?:3X[L1I]|XX[L1I]|X[L1I]|S|M|L)([A-Z0-9]{17})(?![A-Z0-9])",
+        r"(\d{2}PR[O0][A-Z0-9]{12})(?![A-Z0-9])",
+        r"(PR[O0][A-Z0-9]{14})(?![A-Z0-9])",
+    ], compact)
+    if code and code != art:
+        return code
+
+    # У бирки 45 мм и артикул, и партия имеют по 17 символов.
+    # Если OCR исказил служебную часть PRO, берём второй самостоятельный
+    # 17-символьный токен, исключая уже найденный артикул.
+    candidates = re.findall(r"(?<![A-Z0-9])([A-Z0-9]{17})(?![A-Z0-9])", compact)
+    for candidate in candidates:
+        if candidate != art:
+            return candidate
+    return ""
+
+
 def _extract_first_photo(text: str, label_type: str = MAIN_LABEL_TYPE) -> tuple[str, str, str, str]:
     compact = _compact(text)
     if label_type == CLG2026_LABEL_TYPE:
@@ -459,12 +479,7 @@ def _extract_first_photo(text: str, label_type: str = MAIN_LABEL_TYPE) -> tuple[
             r"ART(?:ICLE|ICOLO|ICOL)?\.?([A-Z0-9]{17})(?=COLOR|COLOUR|COL|TG|T9|SIZE|$)",
             r"(K[A-Z0-9]{16})",
         ], compact)
-        code = _find_first([
-            r"(?:LOT|BATCH|CODE|COD)\.?([A-Z0-9]{17})",
-            r"(?:T[GQ9]|SIZE)\.?(?:3X[L1I]|XX[L1I]|X[L1I]|S|M|L)([A-Z0-9]{17})",
-            r"(\d{2}PRO[A-Z][A-Z0-9]{11})",
-            r"(PRO[A-Z][A-Z0-9]{13})",
-        ], compact)
+        code = _extract_45mm_batch_code(compact, art)
     else:
         art = _find_first([
             r"ART(?:ICLE|ICOLO|ICOL)?\.?(\d{9})(?!\d)",
