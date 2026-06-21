@@ -452,23 +452,28 @@ def _normalize_label_size(value: str) -> str:
     }.get(value, value)
 
 
+def _normalize_45mm_batch_code(value: str) -> str:
+    if len(value) != 17:
+        return value
+
+    variant = "M" if value[5] == "M" else "I"
+    return f"99PRO{variant}" + value[6:]
+
+
 def _extract_45mm_batch_code(compact: str, art: str) -> str:
     code = _find_first([
-        r"(?:LOT|BATCH|CODE|COD)\.?([A-Z0-9]{17})(?![A-Z0-9])",
-        r"(?:T[GQ9]|SIZE)\.?(?:3X[L1I]|XX[L1I]|X[L1I]|S|M|L)([A-Z0-9]{17})(?![A-Z0-9])",
-        r"(\d{2}PR[O0][A-Z0-9]{12})(?![A-Z0-9])",
-        r"(PR[O0][A-Z0-9]{14})(?![A-Z0-9])",
+        # Границу справа намеренно не требуем: _compact склеивает строки OCR,
+        # поэтому после правильных 17 символов может сразу идти метка TG.
+        r"(99PR[O0][I1LM][A-Z0-9]{11})",
     ], compact)
     if code and code != art:
-        return code
+        return _normalize_45mm_batch_code(code)
 
-    # У бирки 45 мм и артикул, и партия имеют по 17 символов.
-    # Если OCR исказил служебную часть PRO, берём второй самостоятельный
-    # 17-символьный токен, исключая уже найденный артикул.
-    candidates = re.findall(r"(?<![A-Z0-9])([A-Z0-9]{17})(?![A-Z0-9])", compact)
-    for candidate in candidates:
-        if candidate != art:
-            return candidate
+    # Запасной вариант для OCR, который разорвал префикс пробелом или знаком.
+    separated = re.search(r"99[^A-Z0-9]*PR[O0]([I1LM])([A-Z0-9]{11})", compact)
+    if separated:
+        variant = "M" if separated.group(1) == "M" else "I"
+        return f"99PRO{variant}" + separated.group(2)
     return ""
 
 
