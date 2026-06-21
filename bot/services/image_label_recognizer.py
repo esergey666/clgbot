@@ -318,11 +318,26 @@ def _rapidocr_candidate_bytes(image_bytes: bytes) -> list[bytes]:
         candidates.append(_image_to_png_bytes(resized))
 
     original = Image.open(BytesIO(image_bytes)).convert("RGB")
+    width, height = original.size
+
+    # На фото длинной бирки контур часто сливается с пальцами или светлым
+    # фоном. Перекрывающиеся вертикальные фрагменты дают OCR более крупный
+    # текст и позволяют прочитать нижние строки с размером и номером партии.
+    if height >= width:
+        crop_boxes = [
+            (0, 0, max(1, round(width * 0.78)), height),
+            (max(0, round(width * 0.22)), 0, width, height),
+        ]
+        for box in crop_boxes:
+            crop = original.crop(box)
+            resized_crop = _resize_for_ocr(crop, max_side)
+            candidates.append(_image_to_png_bytes(resized_crop))
+
     resized_original = _resize_for_ocr(original, max_side)
     if resized_original.size not in seen_sizes:
         candidates.append(_image_to_png_bytes(resized_original))
 
-    return candidates
+    return candidates[:5]
 
 
 def _rapidocr_text(image_bytes: bytes) -> str:
@@ -369,8 +384,6 @@ def _rapidocr_text(image_bytes: bytes) -> str:
                 seen.add(clean_text)
                 chunks.append(clean_text)
 
-        if len("".join(chunks)) >= 30:
-            break
     return "\n".join(chunks)
 
 
@@ -431,6 +444,14 @@ def _debug_snippet(label: str, text: str, limit: int = 500) -> str:
     return f"{label}: {cleaned or '-'}"
 
 
+def _normalize_label_size(value: str) -> str:
+    return {
+        "3XI": "3XL",
+        "XXI": "XXL",
+        "XI": "XL",
+    }.get(value, value)
+
+
 def _extract_first_photo(text: str, label_type: str = MAIN_LABEL_TYPE) -> tuple[str, str, str, str]:
     compact = _compact(text)
     if label_type == CLG2026_LABEL_TYPE:
@@ -440,7 +461,7 @@ def _extract_first_photo(text: str, label_type: str = MAIN_LABEL_TYPE) -> tuple[
         ], compact)
         code = _find_first([
             r"(?:LOT|BATCH|CODE|COD)\.?([A-Z0-9]{17})",
-            r"(?:TG|T9|SIZE)\.?(?:3XL|XXL|XL|S|M|L)([A-Z0-9]{17})",
+            r"(?:T[GQ9]|SIZE)\.?(?:3X[L1I]|XX[L1I]|X[L1I]|S|M|L)([A-Z0-9]{17})",
             r"(\d{2}PRO[A-Z][A-Z0-9]{11})",
             r"(PRO[A-Z][A-Z0-9]{13})",
         ], compact)
@@ -457,10 +478,10 @@ def _extract_first_photo(text: str, label_type: str = MAIN_LABEL_TYPE) -> tuple[
         r"([A-Z]\d{4})",
     ], compact)
     size = _find_first([
-        r"TG\.?(3XL|XXL|XL|S|M|L)",
-        r"T9\.?(3XL|XXL|XL|S|M|L)",
+        r"T[GQ9]\.?(3X[L1I]|XX[L1I]|X[L1I]|S|M|L)",
         r"SIZE\.?(3XL|XXL|XL|S|M|L)",
     ], compact)
+    size = _normalize_label_size(size.replace("1", "I"))
 
     if code in {art, color}:
         code = ""
