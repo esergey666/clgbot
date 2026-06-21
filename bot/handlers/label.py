@@ -207,6 +207,29 @@ def _photo_missing_format(missing_fields: list[str]) -> str:
     return ", ".join(PHOTO_FIELD_TITLES.get(field, field) for field in missing_fields)
 
 
+def _photo_missing_example(label_type: str, missing_fields: list[str]) -> str:
+    examples = {
+        MAIN_LABEL_TYPE: {
+            "art": "761530404",
+            "color": "V0158",
+            "size": "XL",
+            "code": "TOM068804",
+            "certilogo_code": "783440262709",
+            "certilogo_url": "http://certilogo.com/qr/14GSH3AB5W",
+        },
+        CLG2026_LABEL_TYPE: {
+            "art": "K2S151100008S00J8",
+            "color": "VJ200",
+            "size": "XXL",
+            "code": "99PROI20250007668",
+            "certilogo_code": "783440262709",
+            "certilogo_url": "http://certilogo.com/qr/14GSH3AB5W",
+        },
+    }
+    values = examples.get(label_type, examples[MAIN_LABEL_TYPE])
+    return ", ".join(values.get(field, field) for field in missing_fields)
+
+
 def _get_label_format(label_type: str) -> str:
     if label_type == PRICE_TAG_LABEL_TYPE:
         return PRICE_TAG_FORMAT
@@ -1114,7 +1137,7 @@ async def handle_label_photo(message: Message, state: FSMContext, config: BotCon
                 f"<code>{html.escape(partial_data.as_line())}</code>\n\n"
                 "Введите недостающие поля через запятую:\n"
                 f"<code>{html.escape(_photo_missing_format(missing_fields))}</code>\n\n"
-                "Пример: <code>761530404, 30, TOM068804</code>"
+                f"Пример: <code>{html.escape(_photo_missing_example(label_type, missing_fields))}</code>"
             )
             return
 

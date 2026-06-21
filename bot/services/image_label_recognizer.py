@@ -440,8 +440,9 @@ def _extract_first_photo(text: str, label_type: str = MAIN_LABEL_TYPE) -> tuple[
         ], compact)
         code = _find_first([
             r"(?:LOT|BATCH|CODE|COD)\.?([A-Z0-9]{17})",
-            r"(\d{2}PRO[CM][A-Z0-9]{11})",
-            r"(PRO[CM][A-Z0-9]{13})",
+            r"(?:TG|T9|SIZE)\.?(?:3XL|XXL|XL|S|M|L)([A-Z0-9]{17})",
+            r"(\d{2}PRO[A-Z][A-Z0-9]{11})",
+            r"(PRO[A-Z][A-Z0-9]{13})",
         ], compact)
     else:
         art = _find_first([
@@ -456,9 +457,9 @@ def _extract_first_photo(text: str, label_type: str = MAIN_LABEL_TYPE) -> tuple[
         r"([A-Z]\d{4})",
     ], compact)
     size = _find_first([
-        r"TG\.?(3XL|XXL|XL|S|M|L)(?=TOM|LOT|BATCH|CODE|COD|CLG|HTTP|$)",
-        r"T9\.?(3XL|XXL|XL|S|M|L)(?=TOM|LOT|BATCH|CODE|COD|CLG|HTTP|$)",
-        r"SIZE\.?(3XL|XXL|XL|S|M|L)(?=TOM|LOT|BATCH|CODE|COD|CLG|HTTP|$)",
+        r"TG\.?(3XL|XXL|XL|S|M|L)",
+        r"T9\.?(3XL|XXL|XL|S|M|L)",
+        r"SIZE\.?(3XL|XXL|XL|S|M|L)",
     ], compact)
 
     if code in {art, color}:
