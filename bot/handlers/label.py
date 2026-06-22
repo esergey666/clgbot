@@ -278,10 +278,29 @@ def _get_missing_asset_paths(label_type: str, config: BotConfig) -> list[Path]:
     return [path for path in _get_required_asset_paths(label_type, config) if not path.exists()]
 
 
-def _add_preview_watermark(image_buffer: BytesIO, font_path: Path) -> bytes:
+def _preview_protected_regions(label_type: str) -> list[tuple[float, float, float, float]]:
+    return {
+        MAIN_LABEL_TYPE: [
+            (0.18, 0.27, 0.78, 0.43),
+            (0.14, 0.78, 0.86, 0.96),
+        ],
+        CLG2026_LABEL_TYPE: [
+            (0.24, 0.27, 0.76, 0.42),
+            (0.14, 0.76, 0.86, 0.96),
+        ],
+        PRICE_TAG_LABEL_TYPE: [
+            (0.08, 0.02, 0.86, 0.31),
+        ],
+        RECEIPT_LABEL_TYPE: [
+            (0.07, 0.90, 0.93, 0.99),
+        ],
+    }.get(label_type, [])
+
+
+def _add_preview_watermark(image_buffer: BytesIO, font_path: Path, label_type: str) -> bytes:
     image_buffer.seek(0)
     image = Image.open(image_buffer).convert("RGBA")
-    max_side = 1800
+    max_side = 1100
     if max(image.size) > max_side:
         scale = max_side / max(image.size)
         image = image.resize(
@@ -289,9 +308,46 @@ def _add_preview_watermark(image_buffer: BytesIO, font_path: Path) -> bytes:
             Image.Resampling.LANCZOS,
         )
 
-    font_size = max(34, min(image.width, image.height) // 5)
+    draw = ImageDraw.Draw(image, "RGBA")
+
+    # Машиночитаемые элементы остаются визуально понятными, но пересекаются
+    # несколькими непрозрачными линиями, поэтому сканировать превью нельзя.
+    small_font = ImageFont.truetype(font_path, max(18, min(image.size) // 14))
+    for left, top, right, bottom in _preview_protected_regions(label_type):
+        box = (
+            round(image.width * left),
+            round(image.height * top),
+            round(image.width * right),
+            round(image.height * bottom),
+        )
+        region_width = box[2] - box[0]
+        region_height = box[3] - box[1]
+        line_width = max(5, min(region_width, region_height) // 18)
+        draw.rectangle(box, outline=(130, 0, 0, 255), width=max(2, line_width // 2))
+        draw.line((box[0], box[1], box[2], box[3]), fill=(145, 0, 0, 255), width=line_width)
+        draw.line((box[0], box[3], box[2], box[1]), fill=(145, 0, 0, 255), width=line_width)
+        draw.line(
+            (box[0], box[1] + region_height // 2, box[2], box[1] + region_height // 2),
+            fill=(255, 255, 255, 235),
+            width=max(3, line_width // 2),
+        )
+        label = "DEMO"
+        label_box = draw.textbbox((0, 0), label, font=small_font)
+        draw.text(
+            (
+                (box[0] + box[2] - (label_box[2] - label_box[0])) // 2,
+                (box[1] + box[3] - (label_box[3] - label_box[1])) // 2 - label_box[1],
+            ),
+            label,
+            font=small_font,
+            fill=(255, 255, 255, 255),
+            stroke_width=2,
+            stroke_fill=(80, 0, 0, 255),
+        )
+
+    font_size = max(30, min(image.width, image.height) // 5)
     font = ImageFont.truetype(font_path, font_size)
-    text = "ОБРАЗЕЦ"
+    text = "ОБРАЗЕЦ • НЕ ДЛЯ ПЕЧАТИ"
     text_box = font.getbbox(text)
     text_width = text_box[2] - text_box[0]
     text_height = text_box[3] - text_box[1]
@@ -301,9 +357,9 @@ def _add_preview_watermark(image_buffer: BytesIO, font_path: Path) -> bytes:
         (font_size // 2, font_size // 3 - text_box[1]),
         text,
         font=font,
-        fill=(150, 0, 0, 95),
+        fill=(150, 0, 0, 145),
         stroke_width=max(1, font_size // 35),
-        stroke_fill=(255, 255, 255, 90),
+        stroke_fill=(255, 255, 255, 150),
     )
     stamp = stamp.rotate(28, expand=True, resample=Image.Resampling.BICUBIC)
 
@@ -316,8 +372,35 @@ def _add_preview_watermark(image_buffer: BytesIO, font_path: Path) -> bytes:
             overlay.alpha_composite(stamp, (x + row_offset, y))
 
     result = Image.alpha_composite(image, overlay).convert("RGB")
+
+    # Непрозрачные поперечные полосы физически удаляют часть исходных пикселей.
+    result_draw = ImageDraw.Draw(result)
+    banner_text = "НЕ ДЛЯ ПЕЧАТИ"
+    banner_font_size = max(18, min(image.size) // 13)
+    banner_font = ImageFont.truetype(font_path, banner_font_size)
+    banner_box = result_draw.textbbox((0, 0), banner_text, font=banner_font)
+    while banner_box[2] - banner_box[0] > image.width * 0.9 and banner_font_size > 14:
+        banner_font_size -= 2
+        banner_font = ImageFont.truetype(font_path, banner_font_size)
+        banner_box = result_draw.textbbox((0, 0), banner_text, font=banner_font)
+    banner_height = (banner_box[3] - banner_box[1]) + max(20, image.height // 60)
+    banner_positions = (0.58,)
+    for relative_y in banner_positions:
+        center_y = round(image.height * relative_y)
+        top = center_y - banner_height // 2
+        result_draw.rectangle((0, top, image.width, top + banner_height), fill=(120, 0, 0))
+        result_draw.text(
+            (
+                (image.width - (banner_box[2] - banner_box[0])) // 2,
+                top + (banner_height - (banner_box[3] - banner_box[1])) // 2 - banner_box[1],
+            ),
+            banner_text,
+            font=banner_font,
+            fill="white",
+        )
+
     output = BytesIO()
-    result.save(output, format="JPEG", quality=88, optimize=True)
+    result.save(output, format="JPEG", quality=72, optimize=True, progressive=True)
     return output.getvalue()
 
 
@@ -378,7 +461,7 @@ async def _build_label_preview(label_type: str, config: BotConfig) -> bytes:
             config,
         )
 
-    preview = _add_preview_watermark(image, config.font_path)
+    preview = _add_preview_watermark(image, config.font_path, label_type)
     _PREVIEW_CACHE[label_type] = preview
     return preview
 
