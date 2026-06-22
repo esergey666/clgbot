@@ -55,7 +55,7 @@ def label_type_keyboard(prices: dict[str, int] | None = None) -> InlineKeyboardM
 def user_home_keyboard() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         inline_keyboard=[
-            [InlineKeyboardButton(text="Создать файл", callback_data="user:generate")],
+            [InlineKeyboardButton(text="Позиции и примеры", callback_data="user:generate")],
             [InlineKeyboardButton(text="Личный кабинет", callback_data="user:cabinet")],
         ]
     )
@@ -64,7 +64,9 @@ def user_home_keyboard() -> InlineKeyboardMarkup:
 def access_denied_keyboard() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         inline_keyboard=[
+            [InlineKeyboardButton(text="Посмотреть примеры", callback_data="user:generate")],
             [InlineKeyboardButton(text="Личный кабинет", callback_data="user:cabinet")],
+            [InlineKeyboardButton(text="Главное меню", callback_data="user:home")],
         ]
     )
 
@@ -72,7 +74,7 @@ def access_denied_keyboard() -> InlineKeyboardMarkup:
 def cabinet_keyboard() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         inline_keyboard=[
-            [InlineKeyboardButton(text="Создать файл", callback_data="user:generate")],
+            [InlineKeyboardButton(text="Позиции и примеры", callback_data="user:generate")],
             [InlineKeyboardButton(text="Главное меню", callback_data="user:home")],
         ]
     )

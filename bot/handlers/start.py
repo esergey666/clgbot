@@ -4,7 +4,7 @@ from aiogram.fsm.context import FSMContext
 from aiogram.types import CallbackQuery, Message, User
 
 from bot.config import BotConfig
-from bot.keyboards import access_denied_keyboard, cabinet_keyboard, label_prices_text, label_type_keyboard, user_home_keyboard
+from bot.keyboards import cabinet_keyboard, label_prices_text, label_type_keyboard, user_home_keyboard
 from bot.pricing import DEFAULT_GENERATION_PRICES
 from bot.services.access import AccessService
 from bot.states import LabelForm
@@ -75,21 +75,17 @@ def _cabinet_text(user_id: int, config: BotConfig) -> str:
 
 async def _show_home(message: Message, state: FSMContext, config: BotConfig) -> None:
     _record_user(config, message.from_user)
-    if not _has_access(message, config):
-        await send_ui_message(
-            message,
-            state,
-            "Доступ не активирован.\n\n"
-            "Напишите администратору, чтобы он выдал баланс на ваш Telegram ID.",
-            reply_markup=access_denied_keyboard(),
-        )
-        return
-
     await state.set_state(LabelForm.waiting_for_label_type)
+    has_access = _has_access(message, config)
+    status_text = (
+        "Доступ активирован — можно создавать файлы."
+        if has_access
+        else "Можно бесплатно смотреть защищённые примеры.\nДля генерации файла потребуется активировать доступ."
+    )
     await send_ui_message(
         message,
         state,
-        "Главное меню\n\nВыберите действие:",
+        f"Главное меню\n\n{status_text}\n\nВыберите действие:",
         reply_markup=user_home_keyboard(),
     )
 
@@ -123,41 +119,39 @@ async def user_home(callback: CallbackQuery, state: FSMContext, config: BotConfi
         await callback.answer()
         return
 
-    if not AccessService(config.access_users_path).has_access(callback.from_user.id, config.admin_ids):
-        await replace_ui_message(
-            callback,
-            state,
-            "Доступ не активирован.\n\nНапишите администратору, чтобы он выдал баланс на ваш Telegram ID.",
-            reply_markup=access_denied_keyboard(),
-        )
-        await callback.answer()
-        return
-
     await state.set_state(LabelForm.waiting_for_label_type)
-    await replace_ui_message(callback, state, "Главное меню\n\nВыберите действие:", reply_markup=user_home_keyboard())
+    has_access = AccessService(config.access_users_path).has_access(callback.from_user.id, config.admin_ids)
+    status_text = (
+        "Доступ активирован — можно создавать файлы."
+        if has_access
+        else "Можно бесплатно смотреть защищённые примеры.\nДля генерации файла потребуется активировать доступ."
+    )
+    await replace_ui_message(
+        callback,
+        state,
+        f"Главное меню\n\n{status_text}\n\nВыберите действие:",
+        reply_markup=user_home_keyboard(),
+    )
     await callback.answer()
 
 
 @router.callback_query(F.data == "user:generate")
 async def user_generate(callback: CallbackQuery, state: FSMContext, config: BotConfig) -> None:
     _record_user(config, callback.from_user)
-    if not AccessService(config.access_users_path).has_access(callback.from_user.id, config.admin_ids):
-        await callback.answer("Нет активного доступа", show_alert=True)
-        if callback.message is not None:
-            await replace_ui_message(
-                callback,
-                state,
-                "Доступ не активирован. Напишите администратору, чтобы он выдал баланс.",
-                reply_markup=access_denied_keyboard(),
-            )
-        return
-
+    has_access = AccessService(config.access_users_path).has_access(callback.from_user.id, config.admin_ids)
     await state.set_state(LabelForm.waiting_for_label_type)
     if callback.message is not None:
+        if has_access:
+            access_note = "Выберите, что нужно сгенерировать:"
+        else:
+            access_note = (
+                "Выберите позицию, чтобы посмотреть защищённый пример.\n"
+                "Для создания файла нужен активный доступ."
+            )
         await replace_ui_message(
             callback,
             state,
-            "Что нужно сгенерировать?\n\n"
+            f"{access_note}\n\n"
             "Стоимость генерации:\n"
             f"{_generation_prices_text(config)}",
             reply_markup=_label_type_keyboard(config),

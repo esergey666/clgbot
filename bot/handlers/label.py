@@ -873,10 +873,6 @@ async def _send_many_labels(message: Message, labels: list[list[str]], label_typ
 
 @router.callback_query(LabelForm.waiting_for_label_type, F.data.startswith("label_type:"))
 async def handle_label_type(callback: CallbackQuery, state: FSMContext, config: BotConfig) -> None:
-    if not _callback_has_access(callback, config):
-        await callback.answer("Нет доступа", show_alert=True)
-        return
-
     label_type = (callback.data or "").split(":", maxsplit=1)[1]
     if label_type not in {MAIN_LABEL_TYPE, PRICE_TAG_LABEL_TYPE, CLG2026_LABEL_TYPE, RECEIPT_LABEL_TYPE}:
         await callback.answer("Неизвестный тип бирки", show_alert=True)
@@ -884,6 +880,21 @@ async def handle_label_type(callback: CallbackQuery, state: FSMContext, config: 
 
     await callback.answer()
     await state.update_data(label_type=label_type)
+    has_access = _callback_has_access(callback, config)
+
+    if not has_access:
+        await state.set_state(LabelForm.waiting_for_label_type)
+        if callback.message is not None:
+            await replace_ui_message(
+                callback,
+                state,
+                f"Выбрано: {_get_label_type_name(label_type)}\n\n"
+                "Ниже показан защищённый пример результата.\n\n"
+                "Для создания файла активируйте доступ. Ваш Telegram ID можно посмотреть в личном кабинете.",
+                reply_markup=access_denied_keyboard(),
+            )
+            await _send_label_preview(callback, state, label_type, config)
+        return
 
     if label_type == RECEIPT_LABEL_TYPE:
         await state.set_state(LabelForm.waiting_for_receipt_data)
@@ -936,7 +947,10 @@ async def handle_label_type(callback: CallbackQuery, state: FSMContext, config: 
 @router.message(LabelForm.waiting_for_label_type)
 async def handle_missing_label_type(message: Message, state: FSMContext, config: BotConfig) -> None:
     if not _message_has_access(message, config):
-        await message.answer("У вас нет доступа к использованию этого бота.")
+        await message.answer(
+            "Без активного доступа можно смотреть примеры через меню «Позиции и примеры».",
+            reply_markup=access_denied_keyboard(),
+        )
         return
 
     await send_ui_message(
@@ -1515,12 +1529,16 @@ async def handle_label_data(message: Message, state: FSMContext, config: BotConf
 @router.message()
 async def handle_unexpected_message(message: Message, state: FSMContext, config: BotConfig) -> None:
     if not _message_has_access(message, config):
-        await message.answer("У вас нет доступа к использованию этого бота.", reply_markup=access_denied_keyboard())
+        await state.set_state(LabelForm.waiting_for_label_type)
+        await message.answer(
+            "Для просмотра выберите «Позиции и примеры». Создание файлов доступно после активации доступа.",
+            reply_markup=user_home_keyboard(),
+        )
         return
 
     await state.set_state(LabelForm.waiting_for_label_type)
     await message.answer(
         "Я получил сообщение, но сейчас не выбран тип файла.\n\n"
-        "Нажмите «Создать файл» и выберите, что нужно сгенерировать.",
+        "Нажмите «Позиции и примеры» и выберите, что нужно сгенерировать.",
         reply_markup=user_home_keyboard(),
     )
