@@ -7,8 +7,10 @@ from pathlib import Path
 from zipfile import ZIP_DEFLATED, ZipFile
 
 from aiogram import Bot, F, Router
+from aiogram.exceptions import TelegramBadRequest
 from aiogram.fsm.context import FSMContext
 from aiogram.types import BufferedInputFile, CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup, Message
+from PIL import Image, ImageDraw, ImageFont
 
 from bot.config import BotConfig
 from bot.keyboards import (
@@ -32,6 +34,8 @@ from bot.ui import replace_ui_message, send_ui_message
 
 router = Router()
 logger = logging.getLogger(__name__)
+PREVIEW_MESSAGE_ID_KEY = "label_preview_message_id"
+_PREVIEW_CACHE: dict[str, bytes] = {}
 
 
 def _message_has_access(message: Message, config: BotConfig) -> bool:
@@ -272,6 +276,134 @@ def _get_required_asset_paths(label_type: str, config: BotConfig) -> list[Path]:
 
 def _get_missing_asset_paths(label_type: str, config: BotConfig) -> list[Path]:
     return [path for path in _get_required_asset_paths(label_type, config) if not path.exists()]
+
+
+def _add_preview_watermark(image_buffer: BytesIO, font_path: Path) -> bytes:
+    image_buffer.seek(0)
+    image = Image.open(image_buffer).convert("RGBA")
+    max_side = 1800
+    if max(image.size) > max_side:
+        scale = max_side / max(image.size)
+        image = image.resize(
+            (max(1, round(image.width * scale)), max(1, round(image.height * scale))),
+            Image.Resampling.LANCZOS,
+        )
+
+    font_size = max(34, min(image.width, image.height) // 5)
+    font = ImageFont.truetype(font_path, font_size)
+    text = "ОБРАЗЕЦ"
+    text_box = font.getbbox(text)
+    text_width = text_box[2] - text_box[0]
+    text_height = text_box[3] - text_box[1]
+    stamp = Image.new("RGBA", (text_width + font_size, text_height + font_size), (0, 0, 0, 0))
+    stamp_draw = ImageDraw.Draw(stamp)
+    stamp_draw.text(
+        (font_size // 2, font_size // 3 - text_box[1]),
+        text,
+        font=font,
+        fill=(150, 0, 0, 95),
+        stroke_width=max(1, font_size // 35),
+        stroke_fill=(255, 255, 255, 90),
+    )
+    stamp = stamp.rotate(28, expand=True, resample=Image.Resampling.BICUBIC)
+
+    overlay = Image.new("RGBA", image.size, (0, 0, 0, 0))
+    x_step = max(1, stamp.width + font_size // 2)
+    y_step = max(1, stamp.height + font_size // 2)
+    for y in range(-stamp.height, image.height + stamp.height, y_step):
+        row_offset = -(stamp.width // 2) if (y // y_step) % 2 else 0
+        for x in range(-stamp.width, image.width + stamp.width, x_step):
+            overlay.alpha_composite(stamp, (x + row_offset, y))
+
+    result = Image.alpha_composite(image, overlay).convert("RGB")
+    output = BytesIO()
+    result.save(output, format="JPEG", quality=88, optimize=True)
+    return output.getvalue()
+
+
+async def _build_label_preview(label_type: str, config: BotConfig) -> bytes:
+    cached = _PREVIEW_CACHE.get(label_type)
+    if cached is not None:
+        return cached
+
+    if label_type == PRICE_TAG_LABEL_TYPE:
+        renderer = PriceTagRenderer(config.price_tag_template_path, config.font_path)
+        image = renderer.render(
+            PriceTagData(
+                model_code="801564651",
+                color_code="A0029",
+                size="XL",
+                title="SHORTS",
+                old_price="500",
+                price="250",
+                top_code="A12 ABC DEFG 123456789012",
+            )
+        )
+    elif label_type == RECEIPT_LABEL_TYPE:
+        renderer = ReceiptRenderer(config.receipt_template_path, config.font_path)
+        image = renderer.render(
+            ReceiptData(
+                article="801564651",
+                color="A0029",
+                size="XL",
+                item_name="SHORTS",
+                price="250",
+                sale_number="12345",
+                date_time="22/06/2026 12:00 PM",
+                barcode="1042010164784",
+            )
+        )
+    elif label_type == CLG2026_LABEL_TYPE:
+        image = await _generate_clg2026_label_image(
+            [
+                "L1S155100021S01B9",
+                "V0029",
+                "XXL",
+                "99PROM20250001678",
+                "998467709272",
+                "http://certilogo.com/qr/08JMALPG6C",
+            ],
+            config,
+        )
+    else:
+        image = await _generate_main_label_image(
+            [
+                "761530404",
+                "V0158",
+                "XL",
+                "TOM068804",
+                "783440262709",
+                "http://certilogo.com/qr/14GSH3AB5W",
+            ],
+            config,
+        )
+
+    preview = _add_preview_watermark(image, config.font_path)
+    _PREVIEW_CACHE[label_type] = preview
+    return preview
+
+
+async def _send_label_preview(callback: CallbackQuery, state: FSMContext, label_type: str, config: BotConfig) -> None:
+    if callback.message is None:
+        return
+
+    state_data = await state.get_data()
+    previous_message_id = state_data.get(PREVIEW_MESSAGE_ID_KEY)
+    if previous_message_id:
+        try:
+            await callback.bot.delete_message(callback.message.chat.id, int(previous_message_id))
+        except TelegramBadRequest:
+            pass
+
+    try:
+        preview = await _build_label_preview(label_type, config)
+        sent = await callback.message.answer_photo(
+            photo=BufferedInputFile(preview, filename=f"preview_{_get_label_file_slug(label_type)}.jpg"),
+            caption=f"Пример результата: <b>{_get_label_type_name(label_type)}</b>\nВодяной знак будет только на примере.",
+        )
+        await state.update_data(**{PREVIEW_MESSAGE_ID_KEY: sent.message_id})
+    except Exception:
+        logger.exception("Failed to build preview for label type %s", label_type)
 
 
 async def _get_selected_label_type(state: FSMContext) -> str | None:
@@ -667,6 +799,7 @@ async def handle_label_type(callback: CallbackQuery, state: FSMContext, config: 
         await callback.answer("Неизвестный тип бирки", show_alert=True)
         return
 
+    await callback.answer()
     await state.update_data(label_type=label_type)
 
     if label_type == RECEIPT_LABEL_TYPE:
@@ -684,7 +817,7 @@ async def handle_label_type(callback: CallbackQuery, state: FSMContext, config: 
                 "<code>801564651, A0029, XL, SHORTS, 110, 30/04/2026 05:54 PM</code>\n\n"
                 "Для массовой генерации отправьте .txt, где каждая строка в таком формате."
             )
-        await callback.answer()
+            await _send_label_preview(callback, state, label_type, config)
         return
 
     if label_type == PRICE_TAG_LABEL_TYPE:
@@ -698,7 +831,7 @@ async def handle_label_type(callback: CallbackQuery, state: FSMContext, config: 
                 "Для массовой генерации отправьте .txt или несколько строк текстом:\n"
                 f"<code>{PRICE_TAG_FORMAT}</code>"
             )
-        await callback.answer()
+            await _send_label_preview(callback, state, label_type, config)
         return
 
     await state.set_state(LabelForm.waiting_for_label_data)
@@ -714,7 +847,7 @@ async def handle_label_type(callback: CallbackQuery, state: FSMContext, config: 
 
     if callback.message is not None:
         await replace_ui_message(callback, state, text)
-    await callback.answer()
+        await _send_label_preview(callback, state, label_type, config)
 
 
 @router.message(LabelForm.waiting_for_label_type)
