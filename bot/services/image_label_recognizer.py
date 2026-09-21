@@ -260,9 +260,8 @@ def _label_region_candidates(image_bytes: bytes) -> list[Image.Image]:
 
 def _prepare_for_tesseract(image_bytes: bytes) -> list[Image.Image]:
     candidates: list[Image.Image] = []
-    seen_sizes: set[tuple[int, int, int]] = set()
-    source_images = _label_region_candidates(image_bytes)
-    source_images.append(Image.open(BytesIO(image_bytes)).convert("L"))
+    source_images = [ImageOps.exif_transpose(Image.open(BytesIO(image_bytes))).convert("L")]
+    source_images.extend(_label_region_candidates(image_bytes)[:2])
 
     for source_index, raw_image in enumerate(source_images[:3]):
         image = ImageOps.autocontrast(raw_image)
@@ -277,19 +276,12 @@ def _prepare_for_tesseract(image_bytes: bytes) -> list[Image.Image]:
         for source, angles in variants:
             for angle in angles:
                 candidate = source.rotate(angle, expand=True, fillcolor=255)
-                key = (candidate.width, candidate.height, angle)
-                if key not in seen_sizes:
-                    seen_sizes.add(key)
-                    candidates.append(candidate)
-                    if len(candidates) >= 8:
-                        return candidates
+                candidates.append(candidate)
 
     binary = ImageOps.autocontrast(source_images[0]).point(lambda value: 255 if value > 155 else 0) if source_images else None
     if binary is not None:
         candidate = binary.rotate(0, expand=True, fillcolor=255)
-        key = (candidate.width, candidate.height, 0)
-        if key not in seen_sizes:
-            candidates.append(candidate)
+        candidates.append(candidate)
     return candidates
 
 
@@ -310,14 +302,13 @@ def _resize_for_ocr(image: Image.Image, max_side: int) -> Image.Image:
 def _rapidocr_candidate_bytes(image_bytes: bytes) -> list[bytes]:
     max_side = int(getenv("RAPIDOCR_IMAGE_MAX_SIDE", "1100"))
     candidates: list[bytes] = []
-    seen_sizes: set[tuple[int, int]] = set()
+    original = ImageOps.exif_transpose(Image.open(BytesIO(image_bytes))).convert("RGB")
+    candidates.append(_image_to_png_bytes(_resize_for_ocr(original, max_side)))
 
     for image in _label_region_candidates(image_bytes)[:2]:
         resized = _resize_for_ocr(image.convert("RGB"), max_side)
-        seen_sizes.add(resized.size)
         candidates.append(_image_to_png_bytes(resized))
 
-    original = Image.open(BytesIO(image_bytes)).convert("RGB")
     width, height = original.size
 
     # На фото длинной бирки контур часто сливается с пальцами или светлым
@@ -325,17 +316,13 @@ def _rapidocr_candidate_bytes(image_bytes: bytes) -> list[bytes]:
     # текст и позволяют прочитать нижние строки с размером и номером партии.
     if height >= width:
         crop_boxes = [
-            (0, 0, max(1, round(width * 0.78)), height),
-            (max(0, round(width * 0.22)), 0, width, height),
+            (0, 0, width, max(1, round(height * 0.65))),
+            (0, max(0, round(height * 0.35)), width, height),
         ]
         for box in crop_boxes:
             crop = original.crop(box)
             resized_crop = _resize_for_ocr(crop, max_side)
             candidates.append(_image_to_png_bytes(resized_crop))
-
-    resized_original = _resize_for_ocr(original, max_side)
-    if resized_original.size not in seen_sizes:
-        candidates.append(_image_to_png_bytes(resized_original))
 
     return candidates[:5]
 
@@ -343,7 +330,7 @@ def _rapidocr_candidate_bytes(image_bytes: bytes) -> list[bytes]:
 def _rapidocr_text(image_bytes: bytes) -> str:
     global _RAPIDOCR_ENGINE
 
-    if getenv("OCR_ENGINE", "").strip().lower() == "tesseract_only":
+    if getenv("OCR_ENGINE", "").strip().lower() in {"tesseract", "tesseract_only"}:
         return ""
 
     try:
@@ -374,11 +361,11 @@ def _rapidocr_text(image_bytes: bytes) -> str:
 
         txts = getattr(result, "txts", None)
         scores = getattr(result, "scores", None)
-        if not txts:
+        if txts is None or len(txts) == 0:
             continue
 
         for index, text in enumerate(txts):
-            score = scores[index] if scores and index < len(scores) else 1.0
+            score = scores[index] if scores is not None and index < len(scores) else 1.0
             clean_text = str(text).strip()
             if clean_text and score >= 0.35 and clean_text not in seen:
                 seen.add(clean_text)
@@ -414,15 +401,11 @@ def _tesseract_text(image_bytes: bytes) -> str:
 
 
 def _ocr_text(image_bytes: bytes) -> str:
-    rapid_text = _rapidocr_text(image_bytes)
-    if rapid_text:
-        return rapid_text
-
-    tesseract_text = _tesseract_text(image_bytes)
-
-    if rapid_text and tesseract_text:
-        return rapid_text + "\n" + tesseract_text
-    return rapid_text or tesseract_text
+    try:
+        return _rapidocr_text(image_bytes)
+    except Exception:
+        logger.exception("RapidOCR unavailable; using Tesseract fallback")
+        return ""
 
 
 def _compact(text: str) -> str:
@@ -478,19 +461,24 @@ def _extract_45mm_batch_code(compact: str, art: str) -> str:
 
 
 def _extract_first_photo(text: str, label_type: str = MAIN_LABEL_TYPE) -> tuple[str, str, str, str]:
-    compact = _compact(text)
+    # Keep unrelated OCR lines apart: joining them can fabricate valid codes.
+    compact = "\n".join(re.sub(r"[\s.:=-]+", "", line.upper()) for line in text.splitlines())
     if label_type == CLG2026_LABEL_TYPE:
         art = _find_first([
             r"ART(?:ICLE|ICOLO|ICOL)?\.?([A-Z0-9]{17})",
             r"([KL][A-Z0-9]{16})",
         ], compact)
         code = _extract_45mm_batch_code(compact, art)
+        if not code:
+            # Join only a known batch prefix to its numeric continuation.
+            joined = re.sub(r"(99PR[O0][I1LM])\n(?=[0-9OIL]{11}(?:\n|$))", r"\1", compact)
+            code = _extract_45mm_batch_code(joined, art)
     else:
         art = _find_first([
             r"ART(?:ICLE|ICOLO|ICOL)?\.?(\d{9})(?!\d)",
             r"(?<!\d)(\d{9})(?!\d)",
         ], compact)
-        code = _find_first([r"(TOM\d{6})(?!\d)"], compact)
+        code = _find_first([r"(T[O0]M\d{6})(?!\d)"], compact).replace("T0M", "TOM")
 
     color = _find_first([
         r"(?:COLOR|COLOUR|COL)\.?([A-Z0-9]{5})",
@@ -538,6 +526,15 @@ def _recognize_label_photos_sync(
 
     art, color, size, code = _extract_first_photo(first_text, label_type)
     certilogo_code, certilogo_url = _extract_second_photo(second_text, qr_data)
+
+    # A nonempty OCR result is not necessarily complete. Retry only missing fields.
+    if not all((art, color, size, code)):
+        fallback = _extract_first_photo(_tesseract_text(first_photo), label_type)
+        art, color, size, code = tuple(old or new for old, new in zip((art, color, size, code), fallback))
+    if not all((certilogo_code, certilogo_url)):
+        fallback_code, fallback_url = _extract_second_photo(_tesseract_text(second_photo), qr_data)
+        certilogo_code = certilogo_code or fallback_code
+        certilogo_url = certilogo_url or fallback_url
 
     data = ImageLabelData(
         art=art,

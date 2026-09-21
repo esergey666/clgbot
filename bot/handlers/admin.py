@@ -1,3 +1,4 @@
+from html import escape
 from aiogram import Bot, F, Router
 from aiogram.filters import Command
 from aiogram.fsm.context import FSMContext
@@ -107,15 +108,15 @@ def _admin_panel_text(config: BotConfig) -> str:
     balance_count = len([balance for balance in access.list_balances().values() if balance > 0])
 
     return (
-        "Админ-панель\n\n"
+        "⚙️ <b>Управление ботом</b>\n━━━━━━━━━━━━━━━━━━\n\n"
         f"Постоянный доступ: <b>{permanent_count}</b>\n"
         f"Пользователи с балансом: <b>{balance_count}</b>\n\n"
-        "Выберите действие:"
+        f"<b>Стоимость генерации</b>\n{_format_prices(config)}\n\nВыберите раздел ниже:"
     )
 
 
 def _format_user_line(access: AccessService, user_id: int, text: str) -> str:
-    return f"<code>{user_id}</code> ({access.format_user_label(user_id)}) — {text}"
+    return f"<code>{user_id}</code> ({escape(access.format_user_label(user_id))}) — {text}"
 
 
 async def _refresh_user_profiles(bot: Bot, access: AccessService, user_ids: list[int]) -> None:
@@ -196,7 +197,7 @@ async def admin_save_balance_grant(message: Message, state: FSMContext, config: 
         message,
         state,
         "Баланс выдан.\n\n"
-        f"Пользователь: <code>{user_id}</code> ({access.format_user_label(user_id)})\n"
+        f"Пользователь: <code>{user_id}</code> ({escape(access.format_user_label(user_id))})\n"
         f"Начислено: <b>{amount}</b>\n"
         f"Текущий баланс: <b>{new_balance}</b>",
         reply_markup=admin_panel_keyboard(),
@@ -292,14 +293,14 @@ async def admin_save_user(message: Message, state: FSMContext, config: BotConfig
         await send_ui_message(
             message,
             state,
-            f"Постоянный доступ выдан пользователю <code>{user_id}</code> ({access.format_user_label(user_id)}).",
+            f"Постоянный доступ выдан пользователю <code>{user_id}</code> ({escape(access.format_user_label(user_id))}).",
             reply_markup=admin_panel_keyboard(),
         )
     else:
         await send_ui_message(
             message,
             state,
-            f"Пользователь <code>{user_id}</code> ({access.format_user_label(user_id)}) уже был в списке.",
+            f"Пользователь <code>{user_id}</code> ({escape(access.format_user_label(user_id))}) уже был в списке.",
             reply_markup=admin_panel_keyboard(),
         )
 

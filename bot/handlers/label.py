@@ -1314,21 +1314,10 @@ async def handle_label_photo(message: Message, state: FSMContext, config: BotCon
             photo_label_partial=None,
             photo_label_missing=None,
         )
-        await message.answer("Принял первое фото. Теперь отправьте второе фото с Certilogo-кодом и QR-кодом.")
+        await message.answer("📷 <b>Шаг 2 из 3 · Certilogo</b>\n\nПервое фото принято. Отправьте фото с Certilogo-кодом и QR-кодом целиком.")
         return
 
-    if not config.vision_api_key:
-        await state.update_data(first_label_photo=None, photo_label_parts=None, photo_label_partial=None, photo_label_missing=None)
-        await message.answer(
-            "Фото получил, но распознавание еще не настроено.\n\n"
-            "Добавьте в .env строку:\n"
-            "<code>OPENAI_API_KEY=ваш_ключ</code>\n\n"
-            "Пока можно отправить данные текстом:\n"
-            f"<code>{_get_label_format(label_type)}</code>"
-        )
-        return
-
-    status_message = await message.answer("Принял второе фото. Распознаю данные...")
+    status_message = await message.answer("🔎 <b>Распознаю бирку</b>\nПроверяю данные. Это может занять до минуты.")
     first_photo = base64.b64decode(first_photo_base64)
 
     try:
@@ -1340,7 +1329,7 @@ async def handle_label_photo(message: Message, state: FSMContext, config: BotCon
                 second_photo=photo_bytes,
                 label_type=label_type,
             ),
-            timeout=25,
+            timeout=60,
         )
     except asyncio.TimeoutError:
         await state.update_data(first_label_photo=None, photo_label_parts=None)
@@ -1363,7 +1352,7 @@ async def handle_label_photo(message: Message, state: FSMContext, config: BotCon
             )
             await status_message.delete()
             await message.answer(
-                "Часть данных распознана:\n"
+                "✏️ <b>Осталось заполнить несколько полей</b>\n\n"
                 f"<code>{html.escape(partial_data.as_line())}</code>\n\n"
                 "Введите недостающие поля через запятую:\n"
                 f"<code>{html.escape(_photo_missing_format(missing_fields))}</code>\n\n"
@@ -1384,8 +1373,13 @@ async def handle_label_photo(message: Message, state: FSMContext, config: BotCon
     await state.update_data(first_label_photo=None, photo_label_parts=parts, photo_label_partial=None, photo_label_missing=None)
     await status_message.delete()
     await message.answer(
-        "Нашел данные:\n"
-        f"<code>{recognized.as_line()}</code>\n\n"
+        "✅ <b>Шаг 3 из 3 · Проверка данных</b>\n\n"
+        f"Артикул: <code>{html.escape(recognized.art)}</code>\n"
+        f"Цвет: <code>{html.escape(recognized.color)}</code>\n"
+        f"Размер: <b>{html.escape(recognized.size)}</b>\n"
+        f"Четвёртая строка: <code>{html.escape(recognized.code)}</code>\n"
+        f"Certilogo: <code>{html.escape(recognized.certilogo_code)}</code>\n"
+        f"QR: <code>{html.escape(recognized.certilogo_url)}</code>\n\n"
         "Если все верно, нажмите кнопку генерации. Если есть ошибка, нажмите отмену и отправьте строку вручную.",
         reply_markup=_photo_label_confirmation_keyboard(),
     )

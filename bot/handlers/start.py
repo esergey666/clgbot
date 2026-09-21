@@ -1,3 +1,4 @@
+from html import escape
 from aiogram import F, Router
 from aiogram.filters import Command, CommandStart
 from aiogram.fsm.context import FSMContext
@@ -52,7 +53,7 @@ def _generation_prices_text(config: BotConfig) -> str:
 
 def _cabinet_text(user_id: int, config: BotConfig) -> str:
     access = AccessService(config.access_users_path)
-    user_label = access.format_user_label(user_id)
+    user_label = escape(access.format_user_label(user_id))
     if user_id in config.admin_ids:
         access_text = "администратор"
         balance_text = "без ограничений"
@@ -65,7 +66,7 @@ def _cabinet_text(user_id: int, config: BotConfig) -> str:
         balance_text = str(balance)
 
     return (
-        "Личный кабинет\n\n"
+        "👤 <b>Личный кабинет</b>\n━━━━━━━━━━━━━━━━━━\n\n"
         f"Telegram ID: <code>{user_id}</code>\n"
         f"Пользователь: <b>{user_label}</b>\n"
         f"Статус: <b>{access_text}</b>\n"
@@ -85,8 +86,8 @@ async def _show_home(message: Message, state: FSMContext, config: BotConfig) -> 
     await send_ui_message(
         message,
         state,
-        f"Главное меню\n\n{status_text}\n\nВыберите действие:",
-        reply_markup=user_home_keyboard(),
+        f"🏷 <b>Мастерская бирок</b>\n━━━━━━━━━━━━━━━━━━\n\n{status_text}\n\n<b>Создайте файл за три шага</b>\nВыберите формат → отправьте данные → получите файл.",
+        reply_markup=user_home_keyboard(message.from_user is not None and message.from_user.id in config.admin_ids),
     )
 
 
@@ -129,8 +130,8 @@ async def user_home(callback: CallbackQuery, state: FSMContext, config: BotConfi
     await replace_ui_message(
         callback,
         state,
-        f"Главное меню\n\n{status_text}\n\nВыберите действие:",
-        reply_markup=user_home_keyboard(),
+        f"🏷 <b>Мастерская бирок</b>\n━━━━━━━━━━━━━━━━━━\n\n{status_text}\n\n<b>Создайте файл за три шага</b>\nВыберите формат → отправьте данные → получите файл.",
+        reply_markup=user_home_keyboard(callback.from_user.id in config.admin_ids),
     )
     await callback.answer()
 

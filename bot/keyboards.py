@@ -27,7 +27,7 @@ def _label_with_price(label_type: str, prices: dict[str, int] | None) -> str:
     title = LABEL_TYPE_TITLES[label_type]
     if prices is None:
         return title
-    return f"{title} - {prices.get(label_type, 1)}"
+    return f"{title} · {prices.get(label_type, 1)}"
 
 
 def label_prices_text(prices: dict[str, int]) -> str:
@@ -45,18 +45,19 @@ def label_type_keyboard(prices: dict[str, int] | None = None) -> InlineKeyboardM
             [InlineKeyboardButton(text=_label_with_price(PRICE_TAG_LABEL_TYPE, prices), callback_data=f"label_type:{PRICE_TAG_LABEL_TYPE}")],
             [InlineKeyboardButton(text=_label_with_price(RECEIPT_LABEL_TYPE, prices), callback_data=f"label_type:{RECEIPT_LABEL_TYPE}")],
             [
-                InlineKeyboardButton(text="Личный кабинет", callback_data="user:cabinet"),
-                InlineKeyboardButton(text="Назад", callback_data="user:home"),
+                InlineKeyboardButton(text="👤 Личный кабинет", callback_data="user:cabinet"),
+                InlineKeyboardButton(text="‹ Назад", callback_data="user:home"),
             ],
         ]
     )
 
 
-def user_home_keyboard() -> InlineKeyboardMarkup:
+def user_home_keyboard(is_admin: bool = False) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         inline_keyboard=[
-            [InlineKeyboardButton(text="Позиции и примеры", callback_data="user:generate")],
-            [InlineKeyboardButton(text="Личный кабинет", callback_data="user:cabinet")],
+            [InlineKeyboardButton(text="🏷 Создать • примеры", callback_data="user:generate")],
+            [InlineKeyboardButton(text="👤 Личный кабинет", callback_data="user:cabinet")],
+            *([[InlineKeyboardButton(text="⚙️ Админ-панель", callback_data="admin:back")]] if is_admin else []),
         ]
     )
 
@@ -65,8 +66,8 @@ def access_denied_keyboard() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         inline_keyboard=[
             [InlineKeyboardButton(text="Посмотреть примеры", callback_data="user:generate")],
-            [InlineKeyboardButton(text="Личный кабинет", callback_data="user:cabinet")],
-            [InlineKeyboardButton(text="Главное меню", callback_data="user:home")],
+            [InlineKeyboardButton(text="👤 Личный кабинет", callback_data="user:cabinet")],
+            [InlineKeyboardButton(text="⌂ Главное меню", callback_data="user:home")],
         ]
     )
 
@@ -74,8 +75,8 @@ def access_denied_keyboard() -> InlineKeyboardMarkup:
 def cabinet_keyboard() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         inline_keyboard=[
-            [InlineKeyboardButton(text="Позиции и примеры", callback_data="user:generate")],
-            [InlineKeyboardButton(text="Главное меню", callback_data="user:home")],
+            [InlineKeyboardButton(text="🏷 Создать • примеры", callback_data="user:generate")],
+            [InlineKeyboardButton(text="⌂ Главное меню", callback_data="user:home")],
         ]
     )
 
@@ -84,18 +85,19 @@ def admin_panel_keyboard() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         inline_keyboard=[
             [
-                InlineKeyboardButton(text="Пользователи", callback_data="admin:list_users"),
-                InlineKeyboardButton(text="Выдать баланс", callback_data="admin:grant_balance"),
+                InlineKeyboardButton(text="👥 Пользователи", callback_data="admin:list_users"),
+                InlineKeyboardButton(text="💳 Пополнить баланс", callback_data="admin:grant_balance"),
             ],
             [
-                InlineKeyboardButton(text="Выдать постоянный доступ", callback_data="admin:add_user"),
+                InlineKeyboardButton(text="🔑 Постоянный доступ", callback_data="admin:add_user"),
             ],
             [
-                InlineKeyboardButton(text="Цены генераций", callback_data="admin:prices"),
+                InlineKeyboardButton(text="⚙️ Стоимость генерации", callback_data="admin:prices"),
             ],
             [
-                InlineKeyboardButton(text="Обновить панель", callback_data="admin:back"),
+                InlineKeyboardButton(text="↻ Обновить панель", callback_data="admin:back"),
             ],
+            [InlineKeyboardButton(text="⌂ Главное меню", callback_data="user:home")],
         ]
     )
 
@@ -120,14 +122,14 @@ def access_users_keyboard(user_ids: list[int], quota_user_ids: list[int] | None 
             )
         ])
 
-    keyboard.append([InlineKeyboardButton(text="Назад", callback_data="admin:back")])
+    keyboard.append([InlineKeyboardButton(text="‹ Назад", callback_data="admin:back")])
     return InlineKeyboardMarkup(inline_keyboard=keyboard)
 
 
 def admin_back_keyboard() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         inline_keyboard=[
-            [InlineKeyboardButton(text="Назад в админку", callback_data="admin:back")],
+            [InlineKeyboardButton(text="‹ Админ-панель", callback_data="admin:back")],
         ]
     )
 
@@ -135,6 +137,6 @@ def admin_back_keyboard() -> InlineKeyboardMarkup:
 def user_back_keyboard() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         inline_keyboard=[
-            [InlineKeyboardButton(text="Главное меню", callback_data="user:home")],
+            [InlineKeyboardButton(text="⌂ Главное меню", callback_data="user:home")],
         ]
     )
