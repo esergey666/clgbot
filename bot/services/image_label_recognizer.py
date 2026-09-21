@@ -439,7 +439,7 @@ def _normalize_45mm_batch_code(value: str) -> str:
     if len(value) != 17:
         return value
 
-    variant = "M" if value[5] == "M" else "I"
+    variant = "I" if value[5] in "1L" else value[5]
     return f"99PRO{variant}" + value[6:]
 
 
@@ -447,16 +447,15 @@ def _extract_45mm_batch_code(compact: str, art: str) -> str:
     code = _find_first([
         # Границу справа намеренно не требуем: _compact склеивает строки OCR,
         # поэтому после правильных 17 символов может сразу идти метка TG.
-        r"(99PR[O0][I1LM][A-Z0-9]{11})",
+        r"(99PR[O0][CI1LM][A-Z0-9]{11})",
     ], compact)
     if code and code != art:
         return _normalize_45mm_batch_code(code)
 
     # Запасной вариант для OCR, который разорвал префикс пробелом или знаком.
-    separated = re.search(r"99[^A-Z0-9]*PR[O0]([I1LM])([A-Z0-9]{11})", compact)
+    separated = re.search(r"99[^A-Z0-9]*PR[O0]([CI1LM])([A-Z0-9]{11})", compact)
     if separated:
-        variant = "M" if separated.group(1) == "M" else "I"
-        return f"99PRO{variant}" + separated.group(2)
+        return _normalize_45mm_batch_code("99PRO" + separated.group(1) + separated.group(2))
     return ""
 
 
@@ -471,7 +470,7 @@ def _extract_first_photo(text: str, label_type: str = MAIN_LABEL_TYPE) -> tuple[
         code = _extract_45mm_batch_code(compact, art)
         if not code:
             # Join only a known batch prefix to its numeric continuation.
-            joined = re.sub(r"(99PR[O0][I1LM])\n(?=[0-9OIL]{11}(?:\n|$))", r"\1", compact)
+            joined = re.sub(r"(99PR[O0][CI1LM])\n(?=[0-9OIL]{11}(?:\n|$))", r"\1", compact)
             code = _extract_45mm_batch_code(joined, art)
     else:
         art = _find_first([

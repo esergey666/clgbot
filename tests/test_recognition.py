@@ -6,6 +6,21 @@ from bot.services import image_label_recognizer as ocr
 
 
 class RecognitionTests(unittest.TestCase):
+    def test_45mm_proc_from_reported_photo(self):
+        text = 'Art.\nK2S15Q100004S0B22\nV0061\nTg. M\n99PROC20250003146'
+        self.assertEqual(ocr._extract_first_photo(text, 'clg2026'),
+                         ('K2S15Q100004S0B22', 'V0061', 'M', '99PROC20250003146'))
+
+    def test_45mm_proc_ocr_variants(self):
+        for text in ('99PR0C20250003146', '99PROC\n20250003146', '99-PROC20250003146'):
+            with self.subTest(text=text):
+                self.assertEqual(ocr._extract_first_photo(text, 'clg2026')[3], '99PROC20250003146')
+
+    def test_45mm_preserves_batch_variant(self):
+        for variant in ('C', 'I', 'M'):
+            code = '99PRO' + variant + '20250003146'
+            self.assertEqual(ocr._normalize_45mm_batch_code(code), code)
+
     def test_40mm_spacing_and_zero(self):
         self.assertEqual(ocr._extract_first_photo('ART: 801 564 651\nCOL: V0029\nTG. XL\nT0M 068804'), ('801564651', 'V0029', 'XL', 'TOM068804'))
 
