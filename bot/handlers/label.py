@@ -820,7 +820,9 @@ async def _send_single_label(
 
     logger.info("Sending generated document: type=%s", label_type)
     await message.answer_document(
-        document=BufferedInputFile(image.getvalue(), filename=f"{_get_label_file_slug(label_type)}.png")
+        document=BufferedInputFile(image.getvalue(), filename=f"{_get_label_file_slug(label_type)}.png"),
+        caption=("Размер: 40 × 165 мм. Печатайте в масштабе 100%, без подгонки под страницу."
+                 if label_type == MAIN_LABEL_TYPE else None),
     )
     logger.info("Generated document sent: type=%s", label_type)
     await status_message.delete()
@@ -864,7 +866,10 @@ async def _send_many_labels(message: Message, labels: list[list[str]], label_typ
 
     await message.answer_document(
         document=BufferedInputFile(archive_buffer.getvalue(), filename=f"{_get_label_file_slug(label_type)}.zip"),
-        caption=f"Готово! Сгенерировано бирок: {len(labels)}",
+        caption=f"Готово! Сгенерировано бирок: {len(labels)}" + (
+            "\nРазмер каждой: 40 × 165 мм. Печатайте в масштабе 100%, без подгонки под страницу."
+            if label_type == MAIN_LABEL_TYPE else ""
+        ),
     )
     await status_message.delete()
     await _send_remaining_balance(message, config)

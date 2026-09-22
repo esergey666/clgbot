@@ -7,6 +7,9 @@ from .custom_qr_generator import CustomQrGenerator
 
 
 class LabelGenerator:
+    WIDTH_MM = 40
+    HEIGHT_MM = 165
+
     def __init__(
         self,
         template_path: str | Path,
@@ -39,7 +42,16 @@ class LabelGenerator:
         return self._fit_pos(pos)
 
     async def save(self, filename):
-        self.template.save(filename, dpi=(self.dpi, self.dpi))
+        self.template.save(filename, dpi=self.print_dpi)
+
+    @property
+    def print_dpi(self) -> tuple[float, float]:
+        # Preserve all source pixels while fixing the physical print dimensions.
+        # The standard 1200 x 4950 template requires 762 DPI, not 300 DPI.
+        return (
+            self.template.width * 25.4 / self.WIDTH_MM,
+            self.template.height * 25.4 / self.HEIGHT_MM,
+        )
 
     async def draw_text(
         self,
@@ -182,6 +194,6 @@ class LabelGenerator:
         await self.add_qr(certilogo_url, self._fit_pos((650, 7950)), self._fit(1100))
 
         output = BytesIO()
-        self.template.save(output, format="PNG", dpi=(self.dpi, self.dpi))
+        self.template.save(output, format="PNG", dpi=self.print_dpi)
         output.seek(0)
         return output
