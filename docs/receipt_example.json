@@ -1,7 +1,7 @@
 {
-  "receipt_id": "RCPT-20260923-EE5C0AF4864544DC",
+  "receipt_id": "RCPT-20260923-382B18253A0A4EE1",
   "purchase_date": "2026-09-23",
-  "purchase_time": "18:21:41",
+  "purchase_time": "12:19:19",
   "items": [
     {
       "quantity": 1,
@@ -13,10 +13,10 @@
     },
     {
       "quantity": 1,
-      "name_it": "FELPA CON CAPPUCCIO",
-      "size": "L",
-      "color": "GRIGIO",
-      "article": "811564151",
+      "name_it": "FELPA",
+      "size": "XXL",
+      "color": "V0041",
+      "article": "8052572986499",
       "unit_price": "170.50"
     }
   ],
@@ -26,13 +26,13 @@
   "vat_amount": "94.25",
   "cash_paid": "600.00",
   "change": "34.50",
-  "receipt_number": "2609237655748874",
-  "establishment_id": "S108",
-  "register_id": "S108C1",
-  "sale_id": "29EDA7E6448A499799BBE6E8886B3AC3",
-  "seller_number": "88553",
-  "consultant_name": "Louis",
-  "document_id": "ee5c0af4-8645-44dc-a16e-faede8619d0a",
-  "control_code": "22954A06ACECBA6C85B5E678",
+  "receipt_number": "26219635",
+  "establishment_id": "S109",
+  "register_id": "S109C8",
+  "sale_id": "53DAB397AB3B42C5BD68F5A14FA6762D",
+  "seller_number": "86412",
+  "consultant_name": "Alexandre",
+  "document_id": "382b1825-3a0a-4ee1-93b8-011a21386033",
+  "control_code": "29E16E8AEB992C3F2F73D3BA",
   "currency": "EUR"
 }

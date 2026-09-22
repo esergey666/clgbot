@@ -23,7 +23,7 @@ def identifiers(day, consultants):
     receipt_id = f'RCPT-{day:%Y%m%d}-{uid.hex[:16].upper()}'
     establishment = f'S{secrets.randbelow(999):03d}'
     return dict(receipt_id=receipt_id, document_id=str(uid),
-                receipt_number=f'{day:%y%m%d}{uid.int % 10**10:010d}',
+                receipt_number=f'{day:%y}{uid.int % 10**6:06d}',
                 establishment_id=establishment,
                 register_id=f'{establishment}C{secrets.randbelow(9) + 1}',
                 sale_id=uuid4().hex.upper(), seller_number=f'{secrets.randbelow(90000) + 10000}',

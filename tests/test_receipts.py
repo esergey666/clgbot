@@ -81,6 +81,17 @@ class ReceiptTests(unittest.TestCase):
         self.assertEqual(''.join(lines).replace(' ', ''), name.replace(' ', ''))
         self.assertTrue(all(font.getlength(line) <= 300 for line in lines))
 
+    def test_reference_layout_and_png_metadata(self):
+        result = receipt([item(), item(1, '170.50')])
+        commands, _ = layout(result, StoreConfig())
+        texts = [command[2] for command in commands if command[0] == 'text']
+        for label in ('Numero', 'Etab', 'Caisse', 'Vd', 'Montant', 'Taux', 'Base HT', 'A01'):
+            self.assertIn(label, texts)
+        self.assertFalse(any(command[0] == 'qr' for command in commands))
+        image = Image.open(BytesIO(render(result, StoreConfig())))
+        self.assertEqual(json.loads(image.info['receipt']), result.to_dict())
+        self.assertEqual(json.loads(image.info['receipt_qr_payload'])['receipt_id'], result.receipt_id)
+
     def test_variable_length_png(self):
         heights = []
         for count in (1, 2, 3, 20):
@@ -94,7 +105,7 @@ class ReceiptTests(unittest.TestCase):
 
     def test_twenty_long_items_fit(self):
         result = receipt([item(2, name='GIUBBOTTO ' + 'L' * 70)] * 20)
-        commands, height = layout(result, StoreConfig(), 30)
+        commands, height = layout(result, StoreConfig())
         for command in commands:
             if command[0] == 'text':
                 _, (x, y), text, font = command
