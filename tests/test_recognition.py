@@ -6,6 +6,23 @@ from bot.services import image_label_recognizer as ocr
 
 
 class RecognitionTests(unittest.TestCase):
+    def test_40mm_alphanumeric_color_from_reported_photo(self):
+        text = 'Art.\n801563051\nA0M64\nTg. M\nTOM079762'
+        self.assertEqual(ocr._extract_first_photo(text),
+                         ('801563051', 'A0M64', 'M', 'TOM079762'))
+
+    def test_color_never_extracted_from_batch_or_article(self):
+        for text in ('TOM079762', 'T0M079762', '99PROI20250007668', 'K2S15V00614S0B22', 'A00290'):
+            with self.subTest(text=text):
+                self.assertEqual(ocr._extract_first_photo(text)[1], '')
+
+    def test_color_formats(self):
+        for text, expected in (('COL. A0M64', 'A0M64'), ('V0061', 'V0061'),
+                               ('A0029', 'A0029'), ('M0797', 'M0797'), ('COTTON', ''),
+                               ('COLOR A00290', ''), ('A 0 M 6 4', 'A0M64')):
+            with self.subTest(text=text):
+                self.assertEqual(ocr._extract_first_photo(text)[1], expected)
+
     def test_45mm_proc_from_reported_photo(self):
         text = 'Art.\nK2S15Q100004S0B22\nV0061\nTg. M\n99PROC20250003146'
         self.assertEqual(ocr._extract_first_photo(text, 'clg2026'),

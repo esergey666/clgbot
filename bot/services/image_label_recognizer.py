@@ -480,9 +480,10 @@ def _extract_first_photo(text: str, label_type: str = MAIN_LABEL_TYPE) -> tuple[
         code = _find_first([r"(T[O0]M\d{6})(?!\d)"], compact).replace("T0M", "TOM")
 
     color = _find_first([
-        r"(?:COLOR|COLOUR|COL)\.?([A-Z0-9]{5})",
-        r"(V[A-Z0-9]{4})",
-        r"([A-Z]\d{4})",
+        r"(?<![A-Z0-9])(?:COLOR|COLOUR|COL)([A-Z0-9]{5})(?![A-Z0-9])",
+        # Unlabelled colours can contain letters among the digits (A0M64).
+        # Require a complete token, never a substring of an article or batch.
+        r"(?<![A-Z0-9])([A-Z](?=[A-Z0-9]{0,3}\d)[A-Z0-9]{4})(?![A-Z0-9])",
     ], compact)
     size = _find_first([
         r"T[GQ9]\.?(3X[L1I]|XX[L1I]|X[L1I]|S|M|L)",
