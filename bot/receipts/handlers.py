@@ -35,7 +35,7 @@ PROMPTS = (
     'Количество: целое число от 1 до 999.',
     'Наименование вещи <b>на итальянском</b>, до 80 символов.\nНапример: <code>GIUBBOTTO SENZA MANICHE</code>',
     'Размер, до 16 символов. Например: <code>XXL</code>',
-    'Цвет, до 24 символов. Например: <code>NERO</code>',
+    'Цвет, до 24 символов. Например: <code>NERO</code>. Если цвет не нужно печатать, отправьте <code>-</code>.',
     'Артикул, до 32 символов. Например: <code>8115G0123</code>',
     'Цена за одну единицу в EUR. Например: <code>395,50</code>',
 )
@@ -139,7 +139,7 @@ async def add_item(callback: CallbackQuery, state: FSMContext):
 
 
 def summary_pages(receipt):
-    header = f'🧾 <b>Проверьте данные</b>\nДата: {receipt.purchase_date:%d.%m.%Y}\nВремя: {receipt.purchase_time:%H:%M:%S}\n\n'
+    header = f'🧾 <b>Проверьте данные</b>\nДата: {receipt.purchase_date:%d.%m.%Y}\nВремя: {receipt.purchase_time:%H:%M:%S}\nКассир: {escape(receipt.display_cashier)}\n\n'
     pages, current = [], header
     for item in receipt.items:
         block = (f'{item.quantity} × {escape(item.name_it)}\n{escape(item.size)} / {escape(item.color)}\n'

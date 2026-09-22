@@ -1,5 +1,7 @@
 import unittest
 import json
+import base64
+import re
 from datetime import date, datetime, time
 from decimal import Decimal
 from io import BytesIO
@@ -22,6 +24,32 @@ def receipt(items):
 
 
 class ReceiptTests(unittest.TestCase):
+    def test_synthetic_scan_style_codes_and_cashier(self):
+        result = Receipt.create(date(2026, 9, 23), [item()], StoreConfig(consultants=('Camille',)))
+        self.assertEqual(result.cashier_name, 'Camille')
+        self.assertEqual(result.display_cashier, 'Camille')
+        self.assertRegex(result.barcode_value, r'^01B\d{10}$')
+        self.assertEqual(len(result.control_code), 96)
+        self.assertEqual(len(base64.b64decode(result.control_code, validate=True)), 72)
+        restored = Receipt.from_dict(result.to_dict())
+        self.assertEqual(restored.barcode_data, result.barcode_data)
+        self.assertEqual(restored.control_code, result.control_code)
+        self.assertEqual(render(restored, StoreConfig()), render(result, StoreConfig()))
+
+    def test_cashier_configuration(self):
+        with patch.dict('os.environ', {'STORE_CASHIERS': 'Camille, Pierre'}):
+            self.assertEqual(StoreConfig.from_env().consultants, ('Camille', 'Pierre'))
+        with patch.dict('os.environ', {'STORE_CASHIERS': ' , '}):
+            with self.assertRaises(ValueError): StoreConfig.from_env()
+
+    def test_old_receipt_has_stable_fallback_barcode(self):
+        data = receipt([item()]).to_dict()
+        data.pop('cashier_name'); data.pop('barcode_value')
+        old = Receipt.from_dict(data)
+        self.assertEqual(old.display_cashier, old.consultant_name)
+        self.assertRegex(old.barcode_data, r'^01B\d{10}$')
+        self.assertEqual(Receipt.from_dict(old.to_dict()).barcode_data, old.barcode_data)
+
     def test_quantity_and_totals(self):
         one = receipt([item()]); self.assertEqual(one.total_ttc, Decimal('395.00'))
         result = receipt([item(), item(2, '170.50', 'FELPA CON CAPPUCCIO')])

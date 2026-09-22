@@ -32,4 +32,8 @@ class StoreConfig:
         if any(len(value) > 120 for value in values.values()):
             raise ValueError('Реквизиты магазина: максимум 120 символов на поле.')
         ZoneInfo(values['timezone'])
+        names = tuple(name.strip() for name in getenv('STORE_CASHIERS', ','.join(defaults.consultants)).split(',') if name.strip())
+        if not names or any(len(name) > 32 or any(ord(c) < 32 for c in name) for name in names):
+            raise ValueError('STORE_CASHIERS: имена через запятую, до 32 символов каждое.')
+        values['consultants'] = names
         return cls(**values)

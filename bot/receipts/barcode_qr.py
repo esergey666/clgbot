@@ -1,7 +1,8 @@
 import json
 from PIL import Image, ImageDraw
 import qrcode
-from reportlab.graphics.barcode.code128 import Code128
+from reportlab.graphics.barcode.code39 import Standard39
+import re
 
 
 def qr_payload(receipt):
@@ -18,11 +19,14 @@ def qr_image(receipt):
     return qr.make_image(fill_color='black', back_color='white').convert('RGB')
 
 
-def barcode_image(receipt_id):
-    class RasterCode128(Code128):
+def barcode_image(value):
+    if not re.fullmatch(r'01B\d{10}', value):
+        raise ValueError('Receipt barcode must contain 01B followed by ten digits.')
+    class RasterCode39(Standard39):
         def rect(self, x, y, w, h):
             self.raster.rectangle((round(x), 0, round(x + w) - 1, round(h) - 1), fill='black')
-    barcode = RasterCode128(receipt_id, barWidth=2, barHeight=80, humanReadable=False)
+    barcode = RasterCode39(value, barWidth=4, ratio=2.2, gap=4,
+                           barHeight=80, humanReadable=False, checksum=False, quiet=False)
     image = Image.new('RGB', (round(barcode.width), 80), 'white')
     barcode.raster = ImageDraw.Draw(image)
     barcode.draw()

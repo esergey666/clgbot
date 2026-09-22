@@ -1,0 +1,1 @@
+Receipt Mono is derived from the bundled Inconsolata Regular and Bold fonts. The Unicode zero character uses the existing plain-zero ss02 glyph; font family names were changed to Receipt Mono. All other outlines are unchanged. Licensed under SIL OFL 1.1; see OFL.txt. Horizontal proportions are controlled by the receipt renderer.

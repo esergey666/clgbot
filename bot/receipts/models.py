@@ -61,6 +61,21 @@ class Receipt:
     document_id: str
     control_code: str
     currency: str = 'EUR'
+    barcode_value: str = ''
+    cashier_name: str = ''
+
+    @property
+    def display_cashier(self):
+        return self.cashier_name or self.consultant_name
+
+    @property
+    def barcode_data(self):
+        if self.barcode_value:
+            return self.barcode_value
+        # Old in-progress receipts retain a stable barcode after an upgrade.
+        import hashlib
+        number = int(hashlib.sha256(self.receipt_id.encode()).hexdigest()[:16], 16) % 10**10
+        return f'01B{number:010d}'
 
     @property
     def article_count(self):

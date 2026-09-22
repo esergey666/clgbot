@@ -11,23 +11,25 @@ WIDTH, HEIGHT, DPI = 945, 2244, 300
 ASSETS = Path(__file__).resolve().parents[2] / 'assets' / 'clg2026'
 FONTS = ASSETS.parent / 'receipt_fr'
 RETURN_TEXT = (
-    "Aucun remboursement. Nous échangerons ou émettrons un avoir en boutique dans les 20 jours "
-    "suivant l'achat. Les produits doivent être non portés et en parfait état. "
-    "Cela n'affecte pas vos droits statutaires."
+    "Aucun remboursement. Nous échangerons ou\n"
+    "émettrons un avoir en boutique dans les 20 jours\n"
+    "suivant l'achat. Les produits doivent être non\n"
+    "portés et en parfait état. Cela n'affecte pas vos\n"
+    "droits statutaires."
 )
 
 
 @dataclass(frozen=True)
 class FontStyle:
     font: ImageFont.FreeTypeFont
-    squeeze: float = 0.75
+    squeeze: float = 0.80
 
     def getlength(self, text):
         return self.font.getlength(text) * self.squeeze
 
 
-def font_style(size, bold=False, squeeze=0.75):
-    return FontStyle(ImageFont.truetype(str(FONTS / ('Inconsolata-Bold.ttf' if bold else 'Inconsolata-Regular.ttf')), size), squeeze)
+def font_style(size, bold=False, squeeze=0.80):
+    return FontStyle(ImageFont.truetype(str(FONTS / ('ReceiptMono-Bold.ttf' if bold else 'ReceiptMono-Regular.ttf')), size), squeeze)
 
 
 def wrap_text(text, font, max_width):
@@ -48,11 +50,11 @@ def wrap_text(text, font, max_width):
     return lines or ['']
 
 
-def layout(receipt, store, font_size=48):
+def layout(receipt, store, font_size=50):
     regular = font_style(font_size)
     bold = font_style(font_size, True)
     small = font_style(38)
-    foot = font_style(36)
+    foot = font_style(37, squeeze=0.82)
     title = font_style(90, False, 0.52)
     commands = []
     left, right = 22, 826
@@ -71,14 +73,14 @@ def layout(receipt, store, font_size=48):
 
     # Layout follows the supplied scan: generous top margin, narrow print,
     # four register columns, item articles on their own lines, four VAT columns.
-    y = 184
+    y = 188
     for line in wrap_text(store.name, title, WIDTH - 80):
-        center(line, y, title); y += 86
+        center(line, y, title); y += 82
     for value in (store.address_1, store.address_2, store.phone, store.email,
                   store.legal_name, f'VAT N: {store.vat_number}' if store.vat_number else ''):
         for line in wrap_text(value, regular, WIDTH - 60):
             center(line, y); y += 52
-    y += 26
+    y += 28
     for x, heading in zip((left, 204, 384, 606), ('Numero', 'Etab', 'Caisse', 'Vd')):
         text(heading, x, y)
     y += 50
@@ -90,8 +92,8 @@ def layout(receipt, store, font_size=48):
     text(receipt.seller_number, 606, y)
     y += 54
     commands.append(('barcode', (left, y), (730, 46))); y += 54
-    center(receipt.receipt_id, y, font_style(31), center_x=left + 365)
-    y += 98
+    center('  '.join('*' + receipt.barcode_data + '*'), y, font_style(32, squeeze=0.90), center_x=left + 365)
+    y += 92
     rule(y); y += 28
     text('Articles', left, y, bold)
     right_text('Montant TTC', right, y, bold)
@@ -99,7 +101,7 @@ def layout(receipt, store, font_size=48):
     items_start = y
     for item in receipt.items:
         amount = fr_money(item.line_total)
-        description = f'{item.name_it} {item.size} {item.color}'
+        description = ' '.join(value for value in (item.name_it, item.size, item.color) if value != '-')
         amount_width = regular.getlength(amount)
         lines = wrap_text(description, regular, right - 100 - amount_width - 24)
         text(f'{item.quantity}x', left, y)
@@ -107,7 +109,7 @@ def layout(receipt, store, font_size=48):
             text(line, 100, y)
             if index == 0:
                 right_text(amount, right, y)
-            y += 46
+            y += 42
         for line in wrap_text(item.article, small, right - 100):
             text(line, 100, y, small); y += 36
         if item.quantity > 1:
@@ -118,13 +120,13 @@ def layout(receipt, store, font_size=48):
     right_text(fr_money(receipt.total_ttc), 660, y, bold)
     right_text('EUR', right, y, bold)
     y += 50; center(f'{receipt.article_count} articles', y, bold, center_x=420)
-    y += 52; rule(y); y += 28
+    y += 62; rule(y); y += 28
     center('Règlement', y, bold, center_x=420)
     y += 50; rule(y); y += 27
     text('Espèces EUR', left, y); right_text(f'{fr_money(receipt.cash_paid)}EUR', right, y)
     y += 40
     text('Espèces EUR', left, y); right_text(f'-{fr_money(receipt.change)}EUR', right, y)
-    y += 58; rule(y); y += 28
+    y += 65; rule(y); y += 28
     text('Taxe', left, y, bold)
     right_text('Montant', 402, y, bold)
     right_text('Taux', 562, y, bold)
@@ -139,22 +141,22 @@ def layout(receipt, store, font_size=48):
         if chosen.getlength(value) > available:
             chosen = font_style(max(20, int(font_size * available / chosen.getlength(value))))
         right_text(value, x, y, chosen)
-    y += 76
+    y += 64
     center('Vous avez été conseillé par', y, center_x=420)
-    y += 54; center(receipt.consultant_name, y, bold, center_x=420)
-    y += 84
+    y += 54; center(receipt.display_cashier, y, bold, center_x=420)
+    y += 76
     text('Date:', left, y, bold); text(receipt.purchase_date.strftime('%d/%m/%y'), 178, y)
     text('Heure:', 420, y, bold); text(receipt.purchase_time.strftime('%H:%M:%S'), 622, y)
-    y += 64
-    for line in wrap_text(RETURN_TEXT, foot, right - left):
+    y += 69
+    for line in RETURN_TEXT.splitlines():
         center(line, y, foot, center_x=(right + left) / 2); y += 31
-    y += 66; center('A01', y, small, center_x=420)
+    y += 78; center('A01', y, small, center_x=420)
     y += 66
-    # Synthetic control and document IDs replace the scan's long signature lines.
-    signature_font = font_style(32)
-    for value in (receipt.control_code, receipt.document_id.replace('-', '').upper()):
-        text(value, left, y, signature_font); y += 30
-    height = max(HEIGHT + items_height - 164, y + 36)
+    # Two service-code lines, generated once with the receipt, as in the scan.
+    signature_font = font_style(36, squeeze=0.87)
+    for offset in range(0, len(receipt.control_code), 48):
+        text(receipt.control_code[offset:offset + 48], left, y, signature_font); y += 32
+    height = max(HEIGHT + items_height - 156, y + 36)
     return commands, height
 
 
@@ -174,7 +176,7 @@ def render(receipt, store):
                 draw.line((x, command[1], min(x + 13, 826), command[1]), fill=(70, 70, 70), width=2)
         else:
             _, position, size = command
-            image.paste(barcode_image(receipt.receipt_id).resize(size, Image.Resampling.NEAREST), position)
+            image.paste(barcode_image(receipt.barcode_data).resize(size, Image.Resampling.NEAREST), position)
     metadata = PngImagePlugin.PngInfo()
     metadata.add_text('receipt', json.dumps(receipt.to_dict(), ensure_ascii=False))
     metadata.add_text('receipt_qr_payload', qr_payload(receipt))
