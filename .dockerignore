@@ -11,3 +11,4 @@ __pycache__
 .codex
 data/*
 !data/.gitkeep
+tmp/

@@ -8,3 +8,5 @@ rapidocr==3.8.1
 onnxruntime==1.23.2
 pytesseract==0.3.13
 opencv-contrib-python-headless==4.11.0.86
+reportlab==4.4.9
+tzdata>=2025.2

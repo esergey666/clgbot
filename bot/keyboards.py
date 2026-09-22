@@ -44,6 +44,7 @@ def label_type_keyboard(prices: dict[str, int] | None = None) -> InlineKeyboardM
             [InlineKeyboardButton(text=_label_with_price(CLG2026_LABEL_TYPE, prices), callback_data=f"label_type:{CLG2026_LABEL_TYPE}")],
             [InlineKeyboardButton(text=_label_with_price(PRICE_TAG_LABEL_TYPE, prices), callback_data=f"label_type:{PRICE_TAG_LABEL_TYPE}")],
             [InlineKeyboardButton(text=_label_with_price(RECEIPT_LABEL_TYPE, prices), callback_data=f"label_type:{RECEIPT_LABEL_TYPE}")],
+            [InlineKeyboardButton(text="🧾 Чек Франция · PNG" + (f" · {prices.get(RECEIPT_LABEL_TYPE, 1)}" if prices else ""), callback_data="fr:start")],
             [
                 InlineKeyboardButton(text="👤 Личный кабинет", callback_data="user:cabinet"),
                 InlineKeyboardButton(text="‹ Назад", callback_data="user:home"),

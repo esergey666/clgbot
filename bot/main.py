@@ -7,7 +7,7 @@ from aiogram import Bot, Dispatcher
 from aiogram.client.default import DefaultBotProperties
 from aiogram.enums import ParseMode
 from aiogram.exceptions import TelegramNetworkError
-from aiogram.fsm.storage.memory import MemoryStorage
+from aiogram.fsm.storage.memory import MemoryStorage, SimpleEventIsolation
 
 from bot.config import load_config
 from bot.handlers import setup_routers
@@ -23,7 +23,7 @@ async def main() -> None:
     ocr_env = os.getenv("OCR_ENGINE", "rapidocr")
     effective_ocr = "tesseract_only" if ocr_env == "tesseract_only" else "rapidocr"
     logging.info("OCR engine: %s (env: %s)", effective_ocr, ocr_env)
-    dp = Dispatcher(storage=MemoryStorage(), config=config)
+    dp = Dispatcher(storage=MemoryStorage(), events_isolation=SimpleEventIsolation(), config=config)
     dp.include_router(setup_routers())
 
     while True:

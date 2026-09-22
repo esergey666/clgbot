@@ -1,0 +1,38 @@
+{
+  "receipt_id": "RCPT-20260923-EE5C0AF4864544DC",
+  "purchase_date": "2026-09-23",
+  "purchase_time": "18:21:41",
+  "items": [
+    {
+      "quantity": 1,
+      "name_it": "GIUBBOTTO SENZA MANICHE",
+      "size": "XXL",
+      "color": "NERO",
+      "article": "8115G0123",
+      "unit_price": "395.00"
+    },
+    {
+      "quantity": 1,
+      "name_it": "FELPA CON CAPPUCCIO",
+      "size": "L",
+      "color": "GRIGIO",
+      "article": "811564151",
+      "unit_price": "170.50"
+    }
+  ],
+  "total_ttc": "565.50",
+  "total_ht": "471.25",
+  "vat_rate": "0.20",
+  "vat_amount": "94.25",
+  "cash_paid": "600.00",
+  "change": "34.50",
+  "receipt_number": "2609237655748874",
+  "establishment_id": "S108",
+  "register_id": "S108C1",
+  "sale_id": "29EDA7E6448A499799BBE6E8886B3AC3",
+  "seller_number": "88553",
+  "consultant_name": "Louis",
+  "document_id": "ee5c0af4-8645-44dc-a16e-faede8619d0a",
+  "control_code": "22954A06ACECBA6C85B5E678",
+  "currency": "EUR"
+}
