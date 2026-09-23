@@ -1,10 +1,11 @@
-from dataclasses import dataclass, asdict
+from dataclasses import dataclass, asdict, field
 from datetime import date, time
 from decimal import Decimal
 
 from .calculations import money, totals, cash_payment
 from .config import StoreConfig
 from .id_generator import identifiers, purchase_time
+from .product_codes import generate_product_barcode, validate_barcode
 
 
 @dataclass(frozen=True)
@@ -15,6 +16,8 @@ class ReceiptItem:
     color: str
     article: str
     unit_price: Decimal
+    retail_price: Decimal | None = None
+    product_barcode: str = field(default_factory=generate_product_barcode)
 
     def __post_init__(self):
         if type(self.quantity) is not int or not 1 <= self.quantity <= 999:
@@ -27,17 +30,23 @@ class ReceiptItem:
         if not isinstance(self.unit_price, Decimal) or not self.unit_price.is_finite() or not 0 <= self.unit_price <= Decimal('9999999.99'):
             raise ValueError('Некорректная цена.')
         object.__setattr__(self, 'unit_price', money(self.unit_price))
+        retail = self.unit_price if self.retail_price is None else self.retail_price
+        if not isinstance(retail, Decimal) or not retail.is_finite() or not self.unit_price <= retail <= Decimal('9999999.99'):
+            raise ValueError('Цена аутлета не должна превышать полную стоимость вещи.')
+        object.__setattr__(self, 'retail_price', money(retail))
+        validate_barcode(self.product_barcode)
 
     @property
     def line_total(self):
         return money(self.unit_price * self.quantity)
 
     def to_dict(self):
-        return {**asdict(self), 'unit_price': str(self.unit_price)}
+        return {**asdict(self), 'unit_price': str(self.unit_price), 'retail_price': str(self.retail_price)}
 
     @classmethod
     def from_dict(cls, data):
-        return cls(**{**data, 'unit_price': Decimal(data['unit_price'])})
+        return cls(**{**data, 'unit_price': Decimal(data['unit_price']),
+                      'retail_price': Decimal(data.get('retail_price') or data['unit_price'])})
 
 
 @dataclass(frozen=True)

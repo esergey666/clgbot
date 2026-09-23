@@ -24,5 +24,5 @@ def items_keyboard(count):
 
 
 def confirm_keyboard():
-    return keyboard([('✅ Создать чек', 'fr:create')],
+    return keyboard([('✅ Создать чек и ценники', 'fr:create')],
                     [('✏️ Изменить данные', 'fr:edit')], [('❌ Отмена', 'fr:cancel')])

@@ -1,40 +1,34 @@
 {
-  "receipt_id": "RCPT-20260923-C669C63283B64996",
+  "receipt_id": "RCPT-20260923-FABE1B5A9CED4641",
   "purchase_date": "2026-09-23",
-  "purchase_time": "11:06:32",
+  "purchase_time": "16:43:20",
   "items": [
-    {
-      "quantity": 1,
-      "name_it": "GIUBBOTTO SENZA MANICHE",
-      "size": "X",
-      "color": "-",
-      "article": "8056246006865",
-      "unit_price": "395.00"
-    },
     {
       "quantity": 1,
       "name_it": "FELPA",
       "size": "XXL",
       "color": "V0041",
-      "article": "8052572986499",
-      "unit_price": "170.50"
+      "article": "801563750",
+      "unit_price": "170.50",
+      "retail_price": "255.00",
+      "product_barcode": "2065910810215"
     }
   ],
-  "total_ttc": "565.50",
-  "total_ht": "471.25",
+  "total_ttc": "170.50",
+  "total_ht": "142.08",
   "vat_rate": "0.20",
-  "vat_amount": "94.25",
-  "cash_paid": "600.00",
-  "change": "34.50",
-  "receipt_number": "26534501",
-  "establishment_id": "S730",
-  "register_id": "S730C1",
-  "sale_id": "20C7EFE40BB04559BD06CD6128015D99",
-  "seller_number": "27993",
-  "consultant_name": "Sophie",
-  "document_id": "c669c632-83b6-4996-852d-304eced24be5",
-  "control_code": "ae14HJwgz2yt/B66c4A2CeotJoiyytxTSnuisoV2RvszyzzVngvN2p2wPSgQwzs0IhR3ssEn0pu96s/N73XT+W/iZGZj7bxL",
+  "vat_amount": "28.42",
+  "cash_paid": "200.00",
+  "change": "29.50",
+  "receipt_number": "26787870",
+  "establishment_id": "S109",
+  "register_id": "S109C8",
+  "sale_id": "76AEDB5CA42448ECA897B9908C50A451",
+  "seller_number": "17645",
+  "consultant_name": "Louis",
+  "document_id": "fabe1b5a-9ced-4641-84a8-6e18c002b39e",
+  "control_code": "ztJ11MwUpFOw/CZAM/0IxhbbklJWKnCAK5METbdWv+XhphqLbzlJc3zxORvoZABUSBHcperIEYITphGZnA6Lv+/F9ijLoav+",
   "currency": "EUR",
-  "barcode_value": "01B8809733875",
-  "cashier_name": "Sophie"
+  "barcode_value": "01B1291071439",
+  "cashier_name": "Louis"
 }

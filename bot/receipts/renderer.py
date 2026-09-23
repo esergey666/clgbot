@@ -110,7 +110,7 @@ def layout(receipt, store, font_size=50):
             if index == 0:
                 right_text(amount, right, y)
             y += 42
-        for line in wrap_text(item.article, small, right - 100):
+        for line in wrap_text(item.product_barcode, small, right - 100):
             text(line, 100, y, small); y += 36
         if item.quantity > 1:
             text(f'{fr_money(item.unit_price)} EUR x {item.quantity}', 100, y, small); y += 36
