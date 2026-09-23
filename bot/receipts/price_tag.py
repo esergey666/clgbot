@@ -18,13 +18,13 @@ FONTS = ASSETS / 'sticker_fonts'
 def font(size, bold=False):
     return FontStyle(ImageFont.truetype(str(FONTS / ('RobotoCondensed-Bold.ttf' if bold else 'RobotoCondensed-Regular.ttf')), size), 1.0)
 
-def number_font(size):
-    return ImageFont.truetype(str(ASSETS / 'receipt_fr' / 'ReceiptMono-Regular.ttf'), size)
+def number_font(size, bold=False):
+    return ImageFont.truetype(str(ASSETS / 'receipt_fr' / ('Inconsolata-Bold.ttf' if bold else 'Inconsolata-Regular.ttf')), size)
 
 
-def fit_lines(value, width, height, size, bold=False):
+def fit_lines(value, width, height, size, bold=False, numeric=False):
     for actual in range(size, 13, -1):
-        chosen = font(actual, bold)
+        chosen = FontStyle(number_font(actual, bold), 0.80) if numeric else font(actual, bold)
         lines = wrap_text(value, chosen, width)
         if len(lines) * (actual + 3) <= height:
             return chosen, lines

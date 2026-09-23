@@ -17,7 +17,7 @@ def render_base_sticker(item):
     text(image, item.sticker_serial, 36, 30, FontStyle(number_font(50), 1.0))
     matrix = datamatrix_image(item.sticker_datamatrix)
     image.paste(matrix.resize((300, 300), Image.Resampling.NEAREST), (23, 76))
-    chosen, lines = fit_lines(item.sticker_datamatrix, 410, 50, 43, True)
+    chosen, lines = fit_lines(item.sticker_datamatrix, 410, 50, 43, True, numeric=True)
     for index, line in enumerate(lines):
         text(image, line, 27, 395 + index * (chosen.font.size + 3), chosen)
     image.paste(ean_image(item.product_barcode), (404, 45))
@@ -25,7 +25,7 @@ def render_base_sticker(item):
     for value, y, height, size in ((details, 312, 66, 47),
                                    (item.name_it, 385, 66, 46),
                                    (item.sticker_code, 460, 36, 32)):
-        chosen, lines = fit_lines(value, 492, height, size, True)
+        chosen, lines = fit_lines(value, 492, height, size, True, numeric=(value == item.sticker_code))
         for index, line in enumerate(lines):
             text(image, line, 475, y + index * (chosen.font.size + 3), chosen)
     metadata = PngImagePlugin.PngInfo()
