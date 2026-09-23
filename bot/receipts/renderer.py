@@ -119,7 +119,7 @@ def layout(receipt, store, font_size=50):
     text('Total', left, y, bold)
     right_text(fr_money(receipt.total_ttc), 660, y, bold)
     right_text('EUR', right, y, bold)
-    y += 50; center(f'{receipt.article_count} articles', y, bold, center_x=420)
+    y += 50; center(f'{receipt.article_count} articles', y, font_style(38, True), center_x=420)
     y += 62; rule(y); y += 28
     center('Règlement', y, bold, center_x=420)
     y += 50; rule(y); y += 27
