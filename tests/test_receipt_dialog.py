@@ -27,7 +27,7 @@ class ReceiptDialogTests(IsolatedAsyncioTestCase):
     async def fill(self):
         await h.begin(self.message, self.state, 123, self.config)
         await h.accept_date(self.message, self.state, '23.09.2026')
-        for value in ('2', 'FELPA CON CAPPUCCIO', 'L', 'GRIGIO', '811564151', '255,00', '170,50'):
+        for value in ('2', 'FELPA CON CAPPUCCIO', 'L', 'V0029', '811564151', '255,00', '170,50'):
             self.message.text = value
             await h.input_item(self.message, self.state)
         await h.finish(self.callback, self.state)
