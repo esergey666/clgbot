@@ -2,7 +2,7 @@
 from io import BytesIO
 import json
 from PIL import Image, PngImagePlugin
-from .price_tag import WIDTH, HEIGHT, DPI, ean_image, fit_lines, font, text, number_font
+from .price_tag import WIDTH, HEIGHT, DPI, ean_image, text, number_font, fitted_style, block
 from .renderer import FontStyle
 
 
@@ -14,20 +14,24 @@ def datamatrix_image(payload):
 
 def render_base_sticker(item):
     image = Image.new('RGB', (WIDTH, HEIGHT), 'white')
-    text(image, item.sticker_serial, 36, 30, FontStyle(number_font(50), 1.0))
+    # The serial is monospaced, but the lower 25-digit line is tall and condensed.
+    serial_face = number_font(58, bold=True)
+    text(image, item.sticker_serial, 45, 39,
+         FontStyle(serial_face, 324 / serial_face.getlength('598087478656')))
     matrix = datamatrix_image(item.sticker_datamatrix)
-    image.paste(matrix.resize((300, 300), Image.Resampling.NEAREST), (23, 76))
-    chosen, lines = fit_lines(item.sticker_datamatrix, 410, 50, 43, True, numeric=True)
-    for index, line in enumerate(lines):
-        text(image, line, 27, 395 + index * (chosen.font.size + 3), chosen)
-    image.paste(ean_image(item.product_barcode), (404, 45))
+    # libdmtx includes its own white border. Position the *ink* at the measured box.
+    from PIL import ImageChops
+    ink = ImageChops.difference(matrix, Image.new('RGB', matrix.size, 'white')).getbbox()
+    matrix = matrix.crop(ink).resize((280, 280), Image.Resampling.NEAREST)
+    image.paste(matrix, (45, 94))
+    block(image, item.sticker_datamatrix, 37, 395, 385, 53,
+          fitted_style('8052572986499000010000036', 378, 39))
+    image.paste(ean_image(item.product_barcode, bar_height=172, guard_height=195, digit_y=180), (415, 58))
     details = ' '.join(value for value in (item.article, item.color, item.size) if value != '-')
-    for value, y, height, size in ((details, 312, 66, 47),
-                                   (item.name_it, 385, 66, 46),
-                                   (item.sticker_code, 460, 36, 32)):
-        chosen, lines = fit_lines(value, 492, height, size, True, numeric=(value == item.sticker_code))
-        for index, line in enumerate(lines):
-            text(image, line, 475, y + index * (chosen.font.size + 3), chosen)
+    block(image, details, 494, 305, 480, 60,
+          fitted_style('801563750 V0041 XXL', 376, 39))
+    block(image, item.name_it, 494, 371, 480, 45, fitted_style('FELPA', 128, 35))
+    block(image, item.sticker_code, 494, 423, 150, 53, fitted_style('076', 62, 33))
     metadata = PngImagePlugin.PngInfo()
     metadata.add_text('product', json.dumps(item.to_dict(), ensure_ascii=False))
     metadata.add_text('datamatrix_payload', item.sticker_datamatrix)

@@ -5,9 +5,10 @@ import math
 from pathlib import Path
 from PIL import Image, ImageDraw, ImageFont, PngImagePlugin
 from reportlab.graphics.barcode.eanbc import Ean13BarcodeWidget
-from reportlab.graphics.shapes import Rect, String
+from reportlab.graphics.shapes import Rect
 from .calculations import fr_money
 from .product_codes import validate_barcode
+from .pixel_digits import draw_digits
 from .renderer import FontStyle, wrap_text
 
 WIDTH, HEIGHT, DPI = 1000, 500, 508
@@ -22,15 +23,6 @@ def number_font(size, bold=False):
     return ImageFont.truetype(str(ASSETS / 'receipt_fr' / ('Inconsolata-Bold.ttf' if bold else 'Inconsolata-Regular.ttf')), size)
 
 
-def fit_lines(value, width, height, size, bold=False, numeric=False):
-    for actual in range(size, 13, -1):
-        chosen = FontStyle(number_font(actual, bold), 0.80) if numeric else font(actual, bold)
-        lines = wrap_text(value, chosen, width)
-        if len(lines) * (actual + 3) <= height:
-            return chosen, lines
-    raise ValueError('Название слишком длинное для ценника 50 × 25 мм.')
-
-
 def text(image, value, x, y, style, right=False):
     if right:
         x -= style.getlength(value)
@@ -40,47 +32,62 @@ def text(image, value, x, y, style, right=False):
     image.paste(layer, (round(x), round(y)), layer)
 
 
-def ean_image(value):
+def ean_image(value, bar_height=190, guard_height=225, digit_y=203):
     validate_barcode(value)
-    # Integer module widths avoid resampling bars and preserve quiet zones.
-    barcode = Ean13BarcodeWidget(value=value[:12], barWidth=5, barHeight=240,
-                                  fontSize=40, humanReadable=True)
-    group = barcode.draw()
-    image = Image.new('RGB', (round(barcode.width), 240), 'white')
+    barcode = Ean13BarcodeWidget(value=value[:12], barWidth=5, barHeight=bar_height,
+                                  humanReadable=False)
+    image = Image.new('RGB', (585, max(guard_height, digit_y + 35)), 'white')
     draw = ImageDraw.Draw(image)
-    digits = number_font(44)
-    for shape in group.contents:
+    # The bars begin at x=60; the extra left margin holds the first EAN digit.
+    for shape in barcode.draw().contents:
         if isinstance(shape, Rect) and shape.fillColor is not None:
-            draw.rectangle((round(shape.x), round(240 - shape.y - shape.height),
-                            round(shape.x + shape.width) - 1, round(240 - shape.y) - 1), fill='black')
-        elif isinstance(shape, String):
-            x = shape.x
-            if shape.textAnchor == 'middle':
-                x -= digits.getlength(shape.text) / 2
-            draw.text((round(x), round(240 - shape.y)), shape.text, font=digits, fill='black', anchor='ls')
+            module = round((shape.x - 45) / 5)
+            height = guard_height if module < 3 or 45 <= module < 50 or module >= 92 else bar_height
+            x = round(shape.x) + 15
+            draw.rectangle((x, 0, x + round(shape.width) - 1, height - 1), fill='black')
+    draw_digits(image, value[0], 13, digit_y)
+    draw_digits(image, value[1:7], 106, digit_y)
+    draw_digits(image, value[7:], 312, digit_y)
     return image
+
+
+def fitted_style(sample, width, height, bold=True):
+    """Calibrate ink dimensions, not font point size, against the scan."""
+    face = font(80, bold).font
+    bounds = face.getbbox(sample)
+    face = font(round(80 * height / (bounds[3] - bounds[1])), bold).font
+    return FontStyle(face, width / face.getlength(sample))
+
+
+def block(image, value, x, y, width, height, style):
+    # Keep calibrated short fields; shrink and wrap unusually long user input.
+    while True:
+        lines = [value] if style.getlength(value) <= width else wrap_text(value, style, width)
+        line_height = max(style.font.getbbox(line)[3] - style.font.getbbox(line)[1] for line in lines) + 5
+        if len(lines) * line_height <= height:
+            break
+        if style.font.size <= 14:
+            raise ValueError('Текст не помещается на наклейке 50 × 25 мм.')
+        style = FontStyle(style.font.font_variant(size=style.font.size - 1), style.squeeze)
+    for index, line in enumerate(lines):
+        text(image, line, x, y + index * line_height, style)
 
 
 def render_price_tag(item):
     image = Image.new('RGB', (WIDTH, HEIGHT), 'white')
     heading = '   '.join(value for value in (item.article, item.color) if value != '-')
-    chosen, lines = fit_lines(heading, 950, 68, 58, True)
-    for index, line in enumerate(lines):
-        text(image, line, 22, 27 + index * (chosen.font.size + 3), chosen)
-    chosen, lines = fit_lines(item.name_it, 585, 87, 48, True)
-    for index, line in enumerate(lines):
-        text(image, line, 22, 112 + index * (chosen.font.size + 3), chosen)
-    image.paste(ean_image(item.product_barcode), (35, 203))
-    for value, y, size, bold in (
-        ('Retail Price', 142, 39, True),
-        (fr_money(item.retail_price) + ' EUR', 210, 42, True),
-        ('OUTLET PRICE', 275, 39, True),
-        (fr_money(item.unit_price) + ' EUR', 342, 44, True),
-        ('Sz. ' + item.size, 430, 40, True),
+    block(image, heading, 8, 52, 965, 70,
+          fitted_style('801563750   V0041', 450, 41))
+    block(image, item.name_it, 7, 134, 590, 61, fitted_style('FELPA', 145, 46))
+    image.paste(ean_image(item.product_barcode), (43, 200))
+    for value, x, y, width, style in (
+        ('Retail Price', 751, 141, 235, fitted_style('Retail Price', 184, 31, bold=False)),
+        (fr_money(item.retail_price) + ' EUR', 759, 209, 225, fitted_style('255,00 EUR', 192, 31, bold=False)),
+        ('OUTLET PRICE', 704, 273, 280, fitted_style('OUTLET PRICE', 238, 31, bold=False)),
+        (fr_money(item.unit_price) + ' EUR', 759, 342, 225, fitted_style('170,50 EUR', 192, 31, bold=False)),
+        ('Sz. ' + item.size, 704, 422, 280, fitted_style('Sz. XXL', 145, 33)),
     ):
-        chosen, lines = fit_lines(value, 350, 56, size, bold)
-        for index, line in enumerate(lines):
-            text(image, line, 955, y + index * (chosen.font.size + 3), chosen, right=True)
+        block(image, value, x, y, width, 55, style)
     metadata = PngImagePlugin.PngInfo()
     metadata.add_text('product', json.dumps(item.to_dict(), ensure_ascii=False))
     output = BytesIO()
