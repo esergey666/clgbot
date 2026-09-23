@@ -3,7 +3,7 @@ from datetime import date
 from html import escape
 import logging
 
-from aiogram import F, Router
+from aiogram import BaseMiddleware, F, Router
 from aiogram.filters import Command
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
@@ -44,13 +44,42 @@ PROMPTS = (
 )
 
 
+UNAVAILABLE = '🚧 Временно недоступно. Функция находится в разработке.'
+
+
 def allowed(user_id, config):
-    return AccessService(config.access_users_path).has_access(user_id, config.admin_ids)
+    return user_id in config.admin_ids
+
+
+async def clear_receipt_state(state):
+    # A stale receipt button must not erase another workflow's state.
+    if state and await state.get_state() in ReceiptForm.__all_states_names__:
+        await state.clear()
+
+
+class AdminOnlyReceiptMiddleware(BaseMiddleware):
+    async def __call__(self, handler, event, data):
+        user = event.from_user
+        if user is not None and allowed(user.id, data['config']):
+            return await handler(event, data)
+        await clear_receipt_state(data.get('state'))
+        if isinstance(event, CallbackQuery):
+            await event.answer(UNAVAILABLE, show_alert=True)
+        else:
+            await event.answer(UNAVAILABLE)
+        return None
+
+
+# Inner middleware runs only after this router's handler filters have matched.
+# It covers commands, every wizard step, and old/unknown fr:* callbacks.
+router.message.middleware(AdminOnlyReceiptMiddleware())
+router.callback_query.middleware(AdminOnlyReceiptMiddleware())
 
 
 async def begin(message, state, user_id, config):
     if not allowed(user_id, config):
-        await message.answer('Для создания чека нужен активный доступ или баланс.')
+        await clear_receipt_state(state)
+        await message.answer(UNAVAILABLE)
         return
     await state.clear()
     await state.set_state(ReceiptForm.date)
@@ -192,12 +221,15 @@ async def edit(callback: CallbackQuery, state: FSMContext, config: BotConfig):
 
 @router.callback_query(ReceiptForm.confirm, F.data == 'fr:create')
 async def create(callback: CallbackQuery, state: FSMContext, config: BotConfig):
+    # Recheck even a previously paid preview before rendering or delivery.
+    if not allowed(callback.from_user.id, config):
+        await clear_receipt_state(state)
+        await callback.answer(UNAVAILABLE, show_alert=True)
+        return
     await callback.answer('Готовлю файлы…')
     data = await state.get_data()
     access = AccessService(config.access_users_path)
     user_id = callback.from_user.id
-    if not data.get('fr_paid') and not allowed(user_id, config):
-        await callback.message.answer('Недостаточно доступа. Пополните баланс.'); return
     receipt = Receipt.from_dict(data['fr_receipt'])
     # Freeze newly introduced fields for receipts previewed before this upgrade.
     await state.update_data(fr_receipt=receipt.to_dict())
