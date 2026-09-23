@@ -20,3 +20,8 @@ def generate_product_barcode() -> str:
     # Internal synthetic identifiers, independent from the article number.
     body = '20' + f'{secrets.randbelow(10**10):010d}'
     return body + check_digit(body)
+
+
+def generate_numeric_code(length: int) -> str:
+    """Synthetic service field; no claim about the manufacturer's encoding."""
+    return f'{secrets.randbelow(10**length):0{length}d}'

@@ -11,11 +11,15 @@ from .product_codes import validate_barcode
 from .renderer import FontStyle, wrap_text
 
 WIDTH, HEIGHT, DPI = 1000, 500, 508
-FONTS = Path(__file__).resolve().parents[2] / 'assets' / 'clg2026'
+ASSETS = Path(__file__).resolve().parents[2] / 'assets'
+FONTS = ASSETS / 'sticker_fonts'
 
 
 def font(size, bold=False):
-    return FontStyle(ImageFont.truetype(str(FONTS / ('arialbd.ttf' if bold else 'arial.ttf')), size), 0.78)
+    return FontStyle(ImageFont.truetype(str(FONTS / ('RobotoCondensed-Bold.ttf' if bold else 'RobotoCondensed-Regular.ttf')), size), 1.0)
+
+def number_font(size):
+    return ImageFont.truetype(str(ASSETS / 'receipt_fr' / 'ReceiptMono-Regular.ttf'), size)
 
 
 def fit_lines(value, width, height, size, bold=False):
@@ -44,7 +48,7 @@ def ean_image(value):
     group = barcode.draw()
     image = Image.new('RGB', (round(barcode.width), 240), 'white')
     draw = ImageDraw.Draw(image)
-    number_font = ImageFont.truetype(str(FONTS / 'arial.ttf'), 40)
+    digits = number_font(44)
     for shape in group.contents:
         if isinstance(shape, Rect) and shape.fillColor is not None:
             draw.rectangle((round(shape.x), round(240 - shape.y - shape.height),
@@ -52,15 +56,15 @@ def ean_image(value):
         elif isinstance(shape, String):
             x = shape.x
             if shape.textAnchor == 'middle':
-                x -= number_font.getlength(shape.text) / 2
-            draw.text((round(x), round(240 - shape.y)), shape.text, font=number_font, fill='black', anchor='ls')
+                x -= digits.getlength(shape.text) / 2
+            draw.text((round(x), round(240 - shape.y)), shape.text, font=digits, fill='black', anchor='ls')
     return image
 
 
 def render_price_tag(item):
     image = Image.new('RGB', (WIDTH, HEIGHT), 'white')
     heading = '   '.join(value for value in (item.article, item.color) if value != '-')
-    chosen, lines = fit_lines(heading, 950, 68, 54, True)
+    chosen, lines = fit_lines(heading, 950, 68, 58, True)
     for index, line in enumerate(lines):
         text(image, line, 22, 27 + index * (chosen.font.size + 3), chosen)
     chosen, lines = fit_lines(item.name_it, 585, 87, 48, True)

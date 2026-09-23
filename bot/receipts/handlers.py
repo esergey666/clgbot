@@ -18,6 +18,7 @@ from .config import StoreConfig
 from .models import Receipt, ReceiptItem
 from .renderer import render
 from .price_tag import render_price_tags
+from .base_sticker import render_base_stickers
 from .keyboards import cancel_keyboard, date_keyboard, items_keyboard, confirm_keyboard
 
 router = Router()
@@ -57,7 +58,8 @@ async def begin(message, state, user_id, config):
     cost = AccessService(config.access_users_path).get_generation_prices(DEFAULT_GENERATION_PRICES)[RECEIPT_LABEL_TYPE]
     await message.answer(f'🧾 <b>Французский чек · ширина 80 мм</b>\n\n'
                          f'Наименования товаров вводятся на итальянском. До 20 позиций.\n'
-                         f'Чек + ценник 50 × 25 мм для каждой позиции, всё в PNG.\n'
+                         f'Чек + ценник + базовая наклейка для каждой позиции, всё в PNG.\n'
+                         f'Оба стикера — 50 × 25 мм, EAN-13 общий с чеком.\n'
                          f'Комплект стоит <b>{cost}</b> с баланса. Штрихкоды создаются автоматически.\n\n'
                          'Введите дату покупки: <code>ДД.ММ.ГГГГ</code>.\n'
                          'Или нажмите «Сегодня» / отправьте <code>-</code>.', reply_markup=date_keyboard())
@@ -171,7 +173,7 @@ async def finish(callback: CallbackQuery, state: FSMContext):
                                  [ReceiptItem.from_dict(item) for item in data['fr_items']], StoreConfig.from_env())
     except ValueError as error:
         await callback.message.answer(escape(str(error))); return
-    await state.update_data(fr_receipt=receipt.to_dict(), fr_paid=False, fr_png_sent=False, fr_tags_sent=0)
+    await state.update_data(fr_receipt=receipt.to_dict(), fr_paid=False, fr_png_sent=False, fr_tags_sent=0, fr_stickers_sent=0)
     await state.set_state(ReceiptForm.confirm)
     pages = summary_pages(receipt)
     for index, page in enumerate(pages):
@@ -197,12 +199,15 @@ async def create(callback: CallbackQuery, state: FSMContext, config: BotConfig):
     if not data.get('fr_paid') and not allowed(user_id, config):
         await callback.message.answer('Недостаточно доступа. Пополните баланс.'); return
     receipt = Receipt.from_dict(data['fr_receipt'])
+    # Freeze newly introduced fields for receipts previewed before this upgrade.
+    await state.update_data(fr_receipt=receipt.to_dict())
     try:
         png = await asyncio.to_thread(render, receipt, StoreConfig.from_env())
         tags = await asyncio.to_thread(render_price_tags, receipt)
+        stickers = await asyncio.to_thread(render_base_stickers, receipt)
     except Exception:
         logger.exception('French receipt render failed')
-        await callback.message.answer('Не удалось создать чек или ценники. Проверьте данные и повторите.', reply_markup=confirm_keyboard())
+        await callback.message.answer('Не удалось создать комплект чека и наклеек. Проверьте данные и повторите.', reply_markup=confirm_keyboard())
         return
     if not data.get('fr_paid'):
         cost = access.get_generation_prices(DEFAULT_GENERATION_PRICES)[RECEIPT_LABEL_TYPE]
@@ -223,12 +228,21 @@ async def create(callback: CallbackQuery, state: FSMContext, config: BotConfig):
                         f'EAN-13: {item.product_barcode}\n50 × 25 мм. Печать: 100%, без подгонки.',
             )
             await state.update_data(fr_tags_sent=index + 1)
+        for index in range(data.get('fr_stickers_sent', 0), len(stickers)):
+            item = receipt.items[index]
+            filename = f'base_sticker_{index + 1:02d}_{item.product_barcode}.png'
+            await callback.message.answer_document(
+                BufferedInputFile(stickers[index], filename=filename),
+                caption=f'Базовая наклейка {index + 1}/{len(stickers)} · {escape(item.name_it)}\n'
+                        f'EAN-13: {item.product_barcode}\n50 × 25 мм. Печать: 100%, без подгонки.',
+            )
+            await state.update_data(fr_stickers_sent=index + 1)
     except Exception:
         logger.exception('French receipt delivery failed')
         await callback.message.answer('Отправка прервалась. Нажмите «Создать чек» ещё раз: повторного списания не будет.', reply_markup=confirm_keyboard())
         return
     await state.clear()
-    await callback.message.answer(f'✅ Готово: чек и {len(tags)} ценников.', reply_markup=user_home_keyboard(user_id in config.admin_ids))
+    await callback.message.answer(f'✅ Готово: чек, {len(tags)} ценников и {len(stickers)} базовых наклеек.', reply_markup=user_home_keyboard(user_id in config.admin_ids))
 
 
 @router.callback_query(F.data == 'fr:cancel')

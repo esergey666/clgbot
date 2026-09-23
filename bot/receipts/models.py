@@ -1,11 +1,12 @@
 from dataclasses import dataclass, asdict, field
 from datetime import date, time
 from decimal import Decimal
+import re
 
 from .calculations import money, totals, cash_payment
 from .config import StoreConfig
 from .id_generator import identifiers, purchase_time
-from .product_codes import generate_product_barcode, validate_barcode
+from .product_codes import generate_product_barcode, generate_numeric_code, validate_barcode
 
 
 @dataclass(frozen=True)
@@ -18,6 +19,9 @@ class ReceiptItem:
     unit_price: Decimal
     retail_price: Decimal | None = None
     product_barcode: str = field(default_factory=generate_product_barcode)
+    sticker_serial: str = field(default_factory=lambda: generate_numeric_code(12))
+    sticker_suffix: str = field(default_factory=lambda: generate_numeric_code(12))
+    sticker_code: str = field(default_factory=lambda: generate_numeric_code(3))
 
     def __post_init__(self):
         if type(self.quantity) is not int or not 1 <= self.quantity <= 999:
@@ -35,6 +39,13 @@ class ReceiptItem:
             raise ValueError('Цена аутлета не должна превышать полную стоимость вещи.')
         object.__setattr__(self, 'retail_price', money(retail))
         validate_barcode(self.product_barcode)
+        for name, length in (('sticker_serial', 12), ('sticker_suffix', 12), ('sticker_code', 3)):
+            if not re.fullmatch(r'[0-9]{' + str(length) + '}', getattr(self, name)):
+                raise ValueError(f'{name}: ожидается {length} цифр.')
+
+    @property
+    def sticker_datamatrix(self):
+        return self.product_barcode + self.sticker_suffix
 
     @property
     def line_total(self):

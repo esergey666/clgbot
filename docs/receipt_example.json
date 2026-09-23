@@ -1,7 +1,7 @@
 {
-  "receipt_id": "RCPT-20260923-FABE1B5A9CED4641",
+  "receipt_id": "RCPT-20260923-28EBF57D4CB14D66",
   "purchase_date": "2026-09-23",
-  "purchase_time": "16:43:20",
+  "purchase_time": "18:07:51",
   "items": [
     {
       "quantity": 1,
@@ -11,7 +11,10 @@
       "article": "801563750",
       "unit_price": "170.50",
       "retail_price": "255.00",
-      "product_barcode": "2065910810215"
+      "product_barcode": "2059065974960",
+      "sticker_serial": "693407717424",
+      "sticker_suffix": "789391290630",
+      "sticker_code": "971"
     }
   ],
   "total_ttc": "170.50",
@@ -20,15 +23,15 @@
   "vat_amount": "28.42",
   "cash_paid": "200.00",
   "change": "29.50",
-  "receipt_number": "26787870",
-  "establishment_id": "S109",
-  "register_id": "S109C8",
-  "sale_id": "76AEDB5CA42448ECA897B9908C50A451",
-  "seller_number": "17645",
+  "receipt_number": "26619171",
+  "establishment_id": "S385",
+  "register_id": "S385C3",
+  "sale_id": "090CEB893BDB48699F1A4D5290A77792",
+  "seller_number": "17001",
   "consultant_name": "Louis",
-  "document_id": "fabe1b5a-9ced-4641-84a8-6e18c002b39e",
-  "control_code": "ztJ11MwUpFOw/CZAM/0IxhbbklJWKnCAK5METbdWv+XhphqLbzlJc3zxORvoZABUSBHcperIEYITphGZnA6Lv+/F9ijLoav+",
+  "document_id": "28ebf57d-4cb1-4d66-8bd9-dc0a115b4b23",
+  "control_code": "54sl23n/tROiSms6K/g+ygFRw1llSGqH4hJV/7ca5JjRBaf8cdq+e+TpSNy2egz1FYe+HZnhjDjZI53liD4oJx4jfzuE8fJ5",
   "currency": "EUR",
-  "barcode_value": "01B1291071439",
+  "barcode_value": "01B9212615569",
   "cashier_name": "Louis"
 }
