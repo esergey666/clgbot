@@ -166,7 +166,7 @@ def layout(receipt, store, font_size=50):
     y += 78; center('A01', y, small, center_x=386)
     y += 66
     # Two service-code lines, generated once with the receipt, as in the scan.
-    signature_font = font_style(38, squeeze=0.82, stroke=0.5)
+    signature_font = font_style(38, squeeze=0.82, stroke=0.0)
     for offset in range(0, len(receipt.control_code), 48):
         text(receipt.control_code[offset:offset + 48], left, y, signature_font); y += 32
     height = max(HEIGHT + items_height - 162, y + 36)
