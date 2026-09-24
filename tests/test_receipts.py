@@ -140,3 +140,32 @@ class ReceiptTests(unittest.TestCase):
                 self.assertGreaterEqual(x, 0)
                 self.assertLessEqual(x + font.getlength(text), 945)
                 self.assertLess(y + 40, height)
+
+    def test_item_description_crops_like_reference_without_changing_data(self):
+        product = ReceiptItem(1, 'GIUBBOTTO SENZA MANICHE', 'XXL', 'V0029', '8115G0123', Decimal('395'))
+        result = receipt([product])
+        commands, height = layout(result, StoreConfig())
+        descriptions = [c for c in commands if c[0] == 'text' and c[1][0] == 100 and c[3].font.size == 50]
+        self.assertEqual(len(descriptions), 1)
+        self.assertEqual(descriptions[0][2], 'GIUBBOTTO SENZA MANICHE X')
+        texts = [c[2] for c in commands if c[0] == 'text']
+        self.assertNotIn('V0029', texts)
+        self.assertIn(product.product_barcode, texts)
+        self.assertIn('395,00', texts)
+        self.assertEqual(height, layout(receipt([item(name='FELPA')]), StoreConfig())[1])
+        data = json.loads(Image.open(BytesIO(render(result, StoreConfig()))).info['receipt'])['items'][0]
+        self.assertEqual(data['name_it'], product.name_it)
+        self.assertEqual(data['size'], 'XXL')
+        self.assertEqual(data['color'], 'V0029')
+
+    def test_truncation_boundary_and_amount_space(self):
+        from bot.receipts.renderer import item_description, font_style
+        style = font_style(50)
+        for count in (24, 25, 26, 80):
+            product = ReceiptItem(1, 'A' * count, '-', '-', '123', Decimal('1'))
+            self.assertEqual(item_description(product, style, 600), 'A' * min(count, 25))
+        product = item(name='A' * 80)
+        value = item_description(product, style, 185)
+        self.assertLessEqual(style.getlength(value), 185)
+        self.assertGreater(style.getlength(value + 'A'), 185)
+        self.assertNotIn('…', value)

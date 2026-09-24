@@ -8,6 +8,7 @@ from .barcode_qr import barcode_image, qr_payload
 from .calculations import fr_money
 
 WIDTH, HEIGHT, DPI = 945, 2244, 300
+ITEM_DESCRIPTION_MAX_CHARS = 25
 ASSETS = Path(__file__).resolve().parents[2] / 'assets' / 'clg2026'
 FONTS = ASSETS.parent / 'receipt_fr'
 RETURN_TEXT = (
@@ -30,7 +31,8 @@ class FontStyle:
 
 
 def font_style(size, bold=False, squeeze=0.80, stroke=None):
-    return FontStyle(ImageFont.truetype(str(FONTS / ('ReceiptMono-Bold.ttf' if bold else 'ReceiptMono-Regular.ttf')), size), squeeze, (0.0 if bold else 0.25) if stroke is None else stroke)
+    return FontStyle(ImageFont.truetype(str(FONTS / ('ReceiptMono-Bold.ttf' if bold else 'ReceiptMono-Regular.ttf')), size),
+                     squeeze, (0.0 if bold else 0.25) if stroke is None else stroke)
 
 
 def wrap_text(text, font, max_width):
@@ -51,9 +53,22 @@ def wrap_text(text, font, max_width):
     return lines or ['']
 
 
+def item_description(item, font, available_width):
+    """Receipt-only prefix: never wrap overflow or change the stored item."""
+    value = ' '.join(value for value in (item.name_it, item.size, item.color) if value != '-')
+    value = value[:ITEM_DESCRIPTION_MAX_CHARS]
+    while value and font.getlength(value) > available_width:
+        value = value[:-1]
+    return value.rstrip()
+
+
 def layout(receipt, store, font_size=50):
     regular = font_style(font_size)
     bold = font_style(font_size, True)
+    article_heading = font_style(font_size, stroke=0.75)
+    amount_heading = font_style(font_size, stroke=0.875)
+    total_style = font_style(font_size, stroke=0.625)
+    emphasis = font_style(font_size, stroke=0.75)
     small = font_style(40, squeeze=0.745, stroke=0.25)
     foot = font_style(38, squeeze=0.785, stroke=0.25)
     title = font_style(96, False, 0.425, stroke=1.5)
@@ -96,33 +111,30 @@ def layout(receipt, store, font_size=50):
     center('  '.join('*' + receipt.barcode_data + '*'), y - 6, font_style(42, squeeze=0.73, stroke=0.4), center_x=382)
     y += 86
     rule(y + 6); y += 28
-    text('Articles', left, y, bold)
-    right_text('Montant TTC', right, y, bold)
+    text('Articles', left, y, article_heading)
+    right_text('Montant TTC', right, y, amount_heading)
     y += 50; rule(y + 6); y += 29
     items_start = y
     for item in receipt.items:
         amount = fr_money(item.line_total)
-        description = ' '.join(value for value in (item.name_it, item.size, item.color) if value != '-')
         amount_width = regular.getlength(amount)
-        lines = wrap_text(description, regular, right - 100 - amount_width - 24)
+        description = item_description(item, regular, right - 100 - amount_width - 24)
         text(f'{item.quantity}x', left, y)
-        for index, line in enumerate(lines):
-            text(line, 100, y)
-            if index == 0:
-                right_text(amount, right, y)
-            y += 45
+        text(description, 100, y)
+        right_text(amount, right, y)
+        y += 45
         for line in wrap_text(item.product_barcode, small, right - 100):
             text(line, 100, y, small); y += 36
         if item.quantity > 1:
             text(f'{fr_money(item.unit_price)} EUR x {item.quantity}', 100, y, small); y += 36
     items_height = y - items_start
     y += 24
-    text('Total', left, y, bold)
-    right_text(fr_money(receipt.total_ttc), 660, y, bold)
-    right_text('EUR', right, y, bold)
-    y += 46; center(f'{receipt.article_count} articles', y, font_style(38, True), center_x=386)
+    text('Total', left, y, total_style)
+    right_text(fr_money(receipt.total_ttc), 660, y, total_style)
+    right_text('EUR', right, y, total_style)
+    y += 46; center(f'{receipt.article_count} articles', y, font_style(38, True, stroke=0.25), center_x=386)
     y += 62; rule(y); y += 28
-    center('Règlement', y - 5, bold, center_x=409)
+    center('Règlement', y - 5, emphasis, center_x=409)
     y += 50; rule(y); y += 27
     text('Espèces EUR', left, y); right_text(f'{fr_money(receipt.cash_paid)}EUR', 800, y)
     y += 40
@@ -144,7 +156,7 @@ def layout(receipt, store, font_size=50):
         right_text(value, x, y, chosen)
     y += 64
     center('Vous avez été conseillé par', y, center_x=407)
-    y += 54; center(receipt.display_cashier, y, bold, center_x=407)
+    y += 54; center(receipt.display_cashier, y, emphasis, center_x=407)
     y += 76
     text('Date:', left, y, bold); text(receipt.purchase_date.strftime('%d/%m/%y'), 181, y)
     text('Heure:', 420, y, bold); text(receipt.purchase_time.strftime('%H:%M:%S'), 580, y)
@@ -169,7 +181,7 @@ def render(receipt, store):
         if command[0] == 'text':
             _, (x, y), value, style = command
             # Supersampling allows sub-pixel stroke adjustment without a heavy 1px outline.
-            scale = 4
+            scale = 8 if style.stroke * 4 % 1 else 4
             face = style.font.font_variant(size=style.font.size * scale)
             layer = Image.new('RGBA', (math.ceil(face.getlength(value)) + 8 * scale, face.size * 2), (255, 255, 255, 0))
             ImageDraw.Draw(layer).text((2 * scale, scale), value, font=face, fill=(20, 20, 20),
