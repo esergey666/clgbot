@@ -5,6 +5,8 @@ import sys
 
 from aiogram import Bot, Dispatcher
 from aiogram.client.default import DefaultBotProperties
+from aiogram.client.session.aiohttp import AiohttpSession
+from aiogram.client.telegram import TelegramAPIServer
 from aiogram.enums import ParseMode
 from aiogram.exceptions import TelegramNetworkError
 from aiogram.fsm.storage.memory import MemoryStorage, SimpleEventIsolation
@@ -27,7 +29,16 @@ async def main() -> None:
     dp.include_router(setup_routers())
 
     while True:
-        bot = Bot(token=config.token, default=DefaultBotProperties(parse_mode=ParseMode.HTML))
+        session = None
+        if config.telegram_api_base:
+            session = AiohttpSession(
+                api=TelegramAPIServer.from_base(config.telegram_api_base, is_local=True)
+            )
+        bot = Bot(
+            token=config.token,
+            default=DefaultBotProperties(parse_mode=ParseMode.HTML),
+            session=session,
+        )
 
         try:
             await dp.start_polling(bot)

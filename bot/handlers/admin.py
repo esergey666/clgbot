@@ -255,7 +255,7 @@ async def admin_import_clg_file(message: Message, config: BotConfig, bot: Bot) -
     filename = (message.document.file_name or "").lower()
     is_zip = filename.endswith(".zip")
     file_size = message.document.file_size or 0
-    if is_zip and file_size > TELEGRAM_CLOUD_DOWNLOAD_LIMIT:
+    if is_zip and file_size > TELEGRAM_CLOUD_DOWNLOAD_LIMIT and not config.telegram_api_base:
         await message.answer(
             "ZIP получен, но официальный Telegram Bot API не позволяет боту скачать файл больше 20 МБ.\n\n"
             "Разделите архив на части до 20 МБ каждая и отправьте их по очереди. "
@@ -268,7 +268,11 @@ async def admin_import_clg_file(message: Message, config: BotConfig, bot: Bot) -
     )
     buffer = BytesIO()
     try:
-        await bot.download(message.document, destination=buffer)
+        await bot.download(
+            message.document,
+            destination=buffer,
+            timeout=600 if is_zip and config.telegram_api_base else 60,
+        )
     except Exception as error:
         logger.exception("Failed to download CLG source file %s", filename)
         await download_status.edit_text(

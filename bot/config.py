@@ -29,6 +29,7 @@ class BotConfig:
     access_users_path: Path
     clg_database_path: Path
     clg_worked_path: Path
+    telegram_api_base: str | None
 
 
 def _parse_admin_ids(value: str | None) -> list[int]:
@@ -79,4 +80,5 @@ def load_config() -> BotConfig:
         access_users_path=DATA_DIR / "users.json",
         clg_database_path=DATA_DIR / "clg.sqlite3",
         clg_worked_path=DATA_DIR / "отработка.csv",
+        telegram_api_base=_get_env_value("TELEGRAM_API_BASE"),
     )
