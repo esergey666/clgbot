@@ -16,7 +16,7 @@ CODE_RE = re.compile(r"(?<!\d)(\d{12})(?!\d)")
 URL_RE = re.compile(r"https?://[^\s,;]+", re.IGNORECASE)
 CERTILOGO_TOKEN_RE = re.compile(r"https?://(?:www\.)?certilogo\.com/qr/([a-z0-9]+)", re.IGNORECASE)
 MAX_ARCHIVE_IMAGES = 1000
-MAX_ARCHIVE_UNPACKED_BYTES = 250 * 1024 * 1024
+MAX_ARCHIVE_UNPACKED_BYTES = 500 * 1024 * 1024
 MAX_IMAGE_BYTES = 20 * 1024 * 1024
 
 
@@ -57,7 +57,7 @@ def read_jpg_archive(data: bytes) -> list[tuple[str, bytes]]:
         if any(item.file_size > MAX_IMAGE_BYTES for item in members):
             raise ClgArchiveError("Размер одного изображения после распаковки не должен превышать 20 МБ.")
         if sum(item.file_size for item in members) > MAX_ARCHIVE_UNPACKED_BYTES:
-            raise ClgArchiveError("Общий размер изображений после распаковки не должен превышать 250 МБ.")
+            raise ClgArchiveError("Общий размер изображений после распаковки не должен превышать 500 МБ.")
 
         return [(item.filename, archive.read(item)) for item in members]
 

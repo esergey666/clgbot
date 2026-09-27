@@ -7,6 +7,7 @@ from zipfile import ZIP_DEFLATED, ZipFile
 
 from bot.services.clg_pool import (
     MAX_ARCHIVE_IMAGES,
+    MAX_ARCHIVE_UNPACKED_BYTES,
     ClgArchiveError,
     ClgPair,
     ClgPool,
@@ -94,6 +95,9 @@ class ClgPoolTests(unittest.TestCase):
 
     def test_archive_image_limit_is_1000(self):
         self.assertEqual(MAX_ARCHIVE_IMAGES, 1000)
+
+    def test_archive_unpacked_size_limit_is_500_mb(self):
+        self.assertEqual(MAX_ARCHIVE_UNPACKED_BYTES, 500 * 1024 * 1024)
 
 
 if __name__ == "__main__":
