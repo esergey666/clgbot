@@ -595,3 +595,46 @@ async def recognize_label_photos(
         second_photo=second_photo,
         label_type=label_type,
     )
+
+
+def _recognize_clg_source_sync(image_bytes: bytes) -> tuple[str, str]:
+    qr_data = _read_qr(image_bytes)
+    text = _ocr_text(image_bytes)
+    code, url = _extract_second_photo(text, qr_data)
+    if not code or not url:
+        fallback_code, fallback_url = _extract_second_photo(_tesseract_text(image_bytes), qr_data)
+        code = code or fallback_code
+        url = url or fallback_url
+    if not code or not url:
+        missing = []
+        if not code:
+            missing.append("12-значный код")
+        if not url:
+            missing.append("ссылка/QR")
+        raise ImageLabelRecognitionError("не удалось найти: " + ", ".join(missing))
+    return code, url
+
+
+async def recognize_clg_source(image_bytes: bytes) -> tuple[str, str]:
+    return await asyncio.to_thread(_recognize_clg_source_sync, image_bytes)
+
+
+def _recognize_label_details_sync(image_bytes: bytes, label_type: str) -> ImageLabelData:
+    text = _ocr_text(image_bytes)
+    values = _extract_first_photo(text, label_type)
+    if not all(values):
+        fallback = _extract_first_photo(_tesseract_text(image_bytes), label_type)
+        values = tuple(old or new for old, new in zip(values, fallback))
+    data = ImageLabelData(*values, "", "")
+    missing = [name for name, value in zip(("art", "color", "size", "code"), values) if not value]
+    if missing:
+        raise ImageLabelRecognitionError(
+            "не удалось найти поля: " + ", ".join(missing) + ". Попробуйте фото ближе, ровнее и без бликов.",
+            partial_data=data,
+            missing_fields=missing,
+        )
+    return data
+
+
+async def recognize_label_details(image_bytes: bytes, label_type: str = MAIN_LABEL_TYPE) -> ImageLabelData:
+    return await asyncio.to_thread(_recognize_label_details_sync, image_bytes, label_type)

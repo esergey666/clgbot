@@ -1,4 +1,3 @@
-import base64
 import asyncio
 import html
 from io import BytesIO
@@ -26,7 +25,8 @@ from bot.keyboards import (
 )
 from bot.pricing import DEFAULT_GENERATION_PRICES
 from bot.services.access import AccessService
-from bot.services.image_label_recognizer import ImageLabelRecognitionError, recognize_label_photos
+from bot.services.clg_pool import ClgPool
+from bot.services.image_label_recognizer import ImageLabelRecognitionError, recognize_label_details
 from bot.services.price_tag_renderer import PriceTagData, PriceTagRenderer, normalize_model_code
 from bot.services.receipt_renderer import ReceiptData, ReceiptRenderer
 from bot.states import LabelForm
@@ -121,7 +121,7 @@ async def _send_remaining_balance(message: Message, config: BotConfig, user_id: 
     await message.answer(f"Баланс: <b>{remaining}</b>")
 
 
-MAIN_FORMAT = "артикул, цвет, размер, код, certilogo_code, certilogo_url"
+MAIN_FORMAT = "артикул, цвет, размер, код"
 PRICE_TAG_FORMAT = "артикул, цвет, размер, название, старая цена, цена со скидкой"
 RECEIPT_FORMAT = "артикул, цвет, размер, название, цена[, дата/время]"
 LABEL_TYPE_FILE_SLUGS = {
@@ -243,6 +243,8 @@ def _get_label_format(label_type: str) -> str:
 
 
 def _get_expected_parts(label_type: str) -> int:
+    if label_type in {MAIN_LABEL_TYPE, CLG2026_LABEL_TYPE}:
+        return 4
     return 6
 
 
@@ -799,17 +801,24 @@ async def _send_single_label(
             + "\n".join(f"<code>{path}</code>" for path in missing_paths)
         )
         return False
+    pool = ClgPool(config.clg_database_path, config.clg_worked_path)
+    reservation_token, clg_pairs = pool.reserve(1)
+    if not clg_pairs:
+        await message.answer("В базе закончились доступные ЦЛГ. Сообщите администратору.")
+        return False
     if not await _try_consume_balance(message, config, _get_generation_cost(config, label_type), payer_user_id):
+        pool.release(reservation_token)
         logger.info("Single label request stopped by balance check: type=%s", label_type)
         return False
-
+    generation_parts = [*parts[:4], clg_pairs[0].code, clg_pairs[0].url]
     status_message = await message.answer("Начинаю генерацию...")
 
     try:
         logger.info("Generating image: type=%s", label_type)
-        image = await _generate_label_image(parts, label_type, config)
+        image = await _generate_label_image(generation_parts, label_type, config)
         logger.info("Image generated: type=%s bytes=%s", label_type, len(image.getvalue()))
     except Exception as error:
+        pool.release(reservation_token)
         logger.exception("Failed to generate %s label", label_type)
         await message.answer(
             "Не удалось сгенерировать файл на хостинге.\n\n"
@@ -819,11 +828,16 @@ async def _send_single_label(
         return False
 
     logger.info("Sending generated document: type=%s", label_type)
-    await message.answer_document(
-        document=BufferedInputFile(image.getvalue(), filename=f"{_get_label_file_slug(label_type)}.png"),
-        caption=("Размер: 40 × 165 мм. Печатайте в масштабе 100%, без подгонки под страницу."
-                 if label_type == MAIN_LABEL_TYPE else None),
-    )
+    try:
+        await message.answer_document(
+            document=BufferedInputFile(image.getvalue(), filename=f"{_get_label_file_slug(label_type)}.png"),
+            caption=("Размер: 40 × 165 мм. Печатайте в масштабе 100%, без подгонки под страницу."
+                     if label_type == MAIN_LABEL_TYPE else None),
+        )
+    except Exception:
+        pool.release(reservation_token)
+        raise
+    pool.consume(reservation_token, payer_user_id or (message.from_user.id if message.from_user else None))
     logger.info("Generated document sent: type=%s", label_type)
     await status_message.delete()
     await _send_remaining_balance(message, config, payer_user_id)
@@ -838,7 +852,15 @@ async def _send_many_labels(message: Message, labels: list[list[str]], label_typ
             + "\n".join(f"<code>{path}</code>" for path in missing_paths)
         )
         return False
+    pool = ClgPool(config.clg_database_path, config.clg_worked_path)
+    reservation_token, clg_pairs = pool.reserve(len(labels))
+    if len(clg_pairs) != len(labels):
+        await message.answer(
+            f"Недостаточно ЦЛГ в базе: нужно <b>{len(labels)}</b>, доступно <b>{pool.counts()['available']}</b>."
+        )
+        return False
     if not await _try_consume_balance(message, config, _get_generation_cost(config, label_type, len(labels))):
+        pool.release(reservation_token)
         return False
 
     status_message = await message.answer(
@@ -848,10 +870,12 @@ async def _send_many_labels(message: Message, labels: list[list[str]], label_typ
     archive_buffer = BytesIO()
 
     with ZipFile(archive_buffer, "w", compression=ZIP_DEFLATED) as archive:
-        for index, parts in enumerate(labels, start=1):
+        for index, (parts, clg_pair) in enumerate(zip(labels, clg_pairs), start=1):
             try:
-                image = await _generate_label_image(parts, label_type, config)
+                generation_parts = [*parts[:4], clg_pair.code, clg_pair.url]
+                image = await _generate_label_image(generation_parts, label_type, config)
             except Exception as error:
+                pool.release(reservation_token)
                 logger.exception("Failed to generate %s label from line %s", label_type, index)
                 await message.answer(
                     f"Не удалось сгенерировать файл из строки {index}.\n\n"
@@ -864,13 +888,18 @@ async def _send_many_labels(message: Message, labels: list[list[str]], label_typ
 
     archive_buffer.seek(0)
 
-    await message.answer_document(
-        document=BufferedInputFile(archive_buffer.getvalue(), filename=f"{_get_label_file_slug(label_type)}.zip"),
-        caption=f"Готово! Сгенерировано бирок: {len(labels)}" + (
-            "\nРазмер каждой: 40 × 165 мм. Печатайте в масштабе 100%, без подгонки под страницу."
-            if label_type == MAIN_LABEL_TYPE else ""
-        ),
-    )
+    try:
+        await message.answer_document(
+            document=BufferedInputFile(archive_buffer.getvalue(), filename=f"{_get_label_file_slug(label_type)}.zip"),
+            caption=f"Готово! Сгенерировано бирок: {len(labels)}" + (
+                "\nРазмер каждой: 40 × 165 мм. Печатайте в масштабе 100%, без подгонки под страницу."
+                if label_type == MAIN_LABEL_TYPE else ""
+            ),
+        )
+    except Exception:
+        pool.release(reservation_token)
+        raise
+    pool.consume(reservation_token, message.from_user.id if message.from_user else None)
     await status_message.delete()
     await _send_remaining_balance(message, config)
     return True
@@ -941,7 +970,8 @@ async def handle_label_type(callback: CallbackQuery, state: FSMContext, config: 
         f"Выбрано: {label_name}\n\n"
         "Отправьте данные одной строкой в формате:\n"
         f"<code>{label_format}</code>\n\n"
-        "Для массовой генерации можно отправить .txt, где каждая строка в таком же формате."
+        "Certilogo-код и ссылка будут автоматически взяты из закрытой базы.\n\n"
+        "Также можно отправить одно фото исходной бирки. Для массовой генерации — .txt, где каждая строка в таком же формате."
     )
 
     if callback.message is not None:
@@ -1264,7 +1294,7 @@ async def handle_photo_label_generate(callback: CallbackQuery, state: FSMContext
         await callback.answer()
         return
 
-    await state.update_data(photo_label_parts=None, first_label_photo=None, photo_label_partial=None, photo_label_missing=None)
+    await state.update_data(photo_label_parts=None, photo_label_partial=None, photo_label_missing=None)
     await state.set_state(LabelForm.waiting_for_label_type)
     await callback.message.answer("Готово. Можно создать следующий файл:", reply_markup=user_home_keyboard())
     await callback.answer()
@@ -1277,10 +1307,10 @@ async def handle_photo_label_cancel(callback: CallbackQuery, state: FSMContext, 
         return
 
     label_type = await _get_selected_label_type(state) or MAIN_LABEL_TYPE
-    await state.update_data(photo_label_parts=None, first_label_photo=None, photo_label_partial=None, photo_label_missing=None)
+    await state.update_data(photo_label_parts=None, photo_label_partial=None, photo_label_missing=None)
     if callback.message is not None:
         await callback.message.answer(
-            "Отменил распознавание фото. Отправьте 2 фото заново или пришлите данные строкой:\n"
+            "Отменил распознавание фото. Отправьте фото заново или пришлите данные строкой:\n"
             f"<code>{_get_label_format(label_type)}</code>"
         )
     await callback.answer()
@@ -1310,34 +1340,15 @@ async def handle_label_photo(message: Message, state: FSMContext, config: BotCon
         await message.answer("Не удалось прочитать фото. Отправьте изображение еще раз.")
         return
 
-    data = await state.get_data()
-    first_photo_base64 = data.get("first_label_photo")
-    if not first_photo_base64:
-        await state.update_data(
-            first_label_photo=base64.b64encode(photo_bytes).decode("ascii"),
-            photo_label_parts=None,
-            photo_label_partial=None,
-            photo_label_missing=None,
-        )
-        await message.answer("📷 <b>Шаг 2 из 3 · Certilogo</b>\n\nПервое фото принято. Отправьте фото с Certilogo-кодом и QR-кодом целиком.")
-        return
-
     status_message = await message.answer("🔎 <b>Распознаю бирку</b>\nПроверяю данные. Это может занять до минуты.")
-    first_photo = base64.b64decode(first_photo_base64)
 
     try:
         recognized = await asyncio.wait_for(
-            recognize_label_photos(
-                api_key=config.vision_api_key,
-                model=config.vision_model,
-                first_photo=first_photo,
-                second_photo=photo_bytes,
-                label_type=label_type,
-            ),
+            recognize_label_details(photo_bytes, label_type=label_type),
             timeout=60,
         )
     except asyncio.TimeoutError:
-        await state.update_data(first_label_photo=None, photo_label_parts=None)
+        await state.update_data(photo_label_parts=None)
         await status_message.delete()
         await message.answer(
             "Распознавание заняло слишком много времени.\n\n"
@@ -1348,11 +1359,10 @@ async def handle_label_photo(message: Message, state: FSMContext, config: BotCon
     except ImageLabelRecognitionError as error:
         partial_data = getattr(error, "partial_data", None)
         missing_fields = getattr(error, "missing_fields", [])
-        if partial_data is not None and (partial_data.color or partial_data.certilogo_code or partial_data.certilogo_url):
+        if partial_data is not None and (partial_data.art or partial_data.color or partial_data.size or partial_data.code):
             await state.update_data(
-                first_label_photo=None,
                 photo_label_parts=None,
-                photo_label_partial=partial_data.as_parts(),
+                photo_label_partial=partial_data.as_parts()[:4],
                 photo_label_missing=missing_fields,
             )
             await status_message.delete()
@@ -1365,17 +1375,17 @@ async def handle_label_photo(message: Message, state: FSMContext, config: BotCon
             )
             return
 
-        await state.update_data(first_label_photo=None, photo_label_parts=None)
+        await state.update_data(photo_label_parts=None)
         await status_message.delete()
         await message.answer(
             f"Не удалось распознать фото: <code>{html.escape(str(error))}</code>\n\n"
-            "Можно отправить 2 фото еще раз или прислать данные строкой:\n"
+            "Можно отправить фото еще раз или прислать данные строкой:\n"
             f"<code>{_get_label_format(label_type)}</code>"
         )
         return
 
-    parts = recognized.as_parts()
-    await state.update_data(first_label_photo=None, photo_label_parts=parts, photo_label_partial=None, photo_label_missing=None)
+    parts = recognized.as_parts()[:4]
+    await state.update_data(photo_label_parts=parts, photo_label_partial=None, photo_label_missing=None)
     await status_message.delete()
     await message.answer(
         "✅ <b>Шаг 3 из 3 · Проверка данных</b>\n\n"
@@ -1383,8 +1393,7 @@ async def handle_label_photo(message: Message, state: FSMContext, config: BotCon
         f"Цвет: <code>{html.escape(recognized.color)}</code>\n"
         f"Размер: <b>{html.escape(recognized.size)}</b>\n"
         f"Четвёртая строка: <code>{html.escape(recognized.code)}</code>\n"
-        f"Certilogo: <code>{html.escape(recognized.certilogo_code)}</code>\n"
-        f"QR: <code>{html.escape(recognized.certilogo_url)}</code>\n\n"
+        "Certilogo: <b>будет взят из закрытой базы</b>\n\n"
         "Если все верно, нажмите кнопку генерации. Если есть ошибка, нажмите отмену и отправьте строку вручную.",
         reply_markup=_photo_label_confirmation_keyboard(),
     )

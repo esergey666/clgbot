@@ -1,8 +1,9 @@
 from html import escape
+from io import BytesIO
 from aiogram import Bot, F, Router
 from aiogram.filters import Command
 from aiogram.fsm.context import FSMContext
-from aiogram.types import CallbackQuery, Message
+from aiogram.types import BufferedInputFile, CallbackQuery, Message
 
 from bot.config import BotConfig
 from bot.keyboards import (
@@ -13,10 +14,13 @@ from bot.keyboards import (
     RECEIPT_LABEL_TYPE,
     access_users_keyboard,
     admin_back_keyboard,
+    admin_clg_keyboard,
     admin_panel_keyboard,
 )
 from bot.pricing import DEFAULT_GENERATION_PRICES, PRICE_LABEL_ORDER
 from bot.services.access import AccessService
+from bot.services.clg_pool import ClgPair, ClgPool
+from bot.services.image_label_recognizer import ImageLabelRecognitionError, recognize_clg_source
 from bot.states import AdminForm
 from bot.ui import replace_ui_message, send_ui_message
 
@@ -115,6 +119,18 @@ def _admin_panel_text(config: BotConfig) -> str:
     )
 
 
+def _clg_panel_text(config: BotConfig) -> str:
+    counts = ClgPool(config.clg_database_path, config.clg_worked_path).counts()
+    return (
+        "📦 <b>Закрытая база ЦЛГ</b>\n━━━━━━━━━━━━━━━━━━\n\n"
+        f"Доступно: <b>{counts['available']}</b>\n"
+        f"В обработке: <b>{counts['reserved']}</b>\n"
+        f"Отработано: <b>{counts['used']}</b>\n"
+        f"Всего в истории: <b>{counts['total']}</b>\n\n"
+        "База и загрузка доступны только администраторам."
+    )
+
+
 def _format_user_line(access: AccessService, user_id: int, text: str) -> str:
     return f"<code>{user_id}</code> ({escape(access.format_user_label(user_id))}) — {text}"
 
@@ -154,6 +170,109 @@ async def admin_back(callback: CallbackQuery, state: FSMContext, config: BotConf
     if callback.message is not None:
         await replace_ui_message(callback, state, _admin_panel_text(config), reply_markup=admin_panel_keyboard())
     await callback.answer()
+
+
+@router.callback_query(F.data == "admin:clg")
+async def admin_clg(callback: CallbackQuery, state: FSMContext, config: BotConfig) -> None:
+    if not _is_owner_callback(callback, config):
+        await callback.answer("Нет доступа", show_alert=True)
+        return
+    await state.clear()
+    if callback.message is not None:
+        await replace_ui_message(callback, state, _clg_panel_text(config), reply_markup=admin_clg_keyboard())
+    await callback.answer()
+
+
+@router.callback_query(F.data == "admin:clg_upload")
+async def admin_clg_upload(callback: CallbackQuery, state: FSMContext, config: BotConfig) -> None:
+    if not _is_owner_callback(callback, config):
+        await callback.answer("Нет доступа", show_alert=True)
+        return
+    await state.set_state(AdminForm.waiting_for_clg_sources)
+    if callback.message is not None:
+        await replace_ui_message(
+            callback,
+            state,
+            "📥 <b>Загрузка ЦЛГ</b>\n\n"
+            "Отправляйте фото по одному либо текст/.txt/.csv. Каждая строка должна содержать "
+            "12-значный код и ссылку.\n\n"
+            "Пример: <code>783440262709, http://certilogo.com/qr/14GSH3AB5W</code>\n\n"
+            "Все повторы по коду или ссылке, включая ранее отработанные, будут отсечены.",
+            reply_markup=admin_clg_keyboard(),
+        )
+    await callback.answer()
+
+
+@router.callback_query(F.data == "admin:clg_worked")
+async def admin_clg_worked(callback: CallbackQuery, config: BotConfig) -> None:
+    if not _is_owner_callback(callback, config):
+        await callback.answer("Нет доступа", show_alert=True)
+        return
+    if callback.message is None:
+        await callback.answer("Сообщение недоступно", show_alert=True)
+        return
+    path = ClgPool(config.clg_database_path, config.clg_worked_path).export_worked()
+    await callback.message.answer_document(
+        BufferedInputFile(path.read_bytes(), filename="отработка.csv"),
+        caption="История использованных ЦЛГ.",
+    )
+    await callback.answer()
+
+
+def _clg_import_result_text(added: int, duplicates: int, invalid: int) -> str:
+    return (
+        "Загрузка обработана.\n\n"
+        f"Добавлено: <b>{added}</b>\n"
+        f"Дубли отсечены: <b>{duplicates}</b>\n"
+        f"Не распознано/ошибочных строк: <b>{invalid}</b>"
+    )
+
+
+@router.message(AdminForm.waiting_for_clg_sources, F.photo)
+async def admin_import_clg_photo(message: Message, config: BotConfig, bot: Bot) -> None:
+    if not _is_owner(message, config):
+        await message.answer("У вас нет доступа к базе ЦЛГ.")
+        return
+    buffer = BytesIO()
+    await bot.download(message.photo[-1], destination=buffer)
+    try:
+        code, url = await recognize_clg_source(buffer.getvalue())
+    except ImageLabelRecognitionError as error:
+        await message.answer(f"Фото не добавлено: <code>{escape(str(error))}</code>")
+        return
+    result = ClgPool(config.clg_database_path, config.clg_worked_path).import_pairs([ClgPair(code, url)])
+    await message.answer(_clg_import_result_text(result.added, result.duplicates, result.invalid))
+
+
+@router.message(AdminForm.waiting_for_clg_sources, F.document)
+async def admin_import_clg_file(message: Message, config: BotConfig, bot: Bot) -> None:
+    if not _is_owner(message, config):
+        await message.answer("У вас нет доступа к базе ЦЛГ.")
+        return
+    filename = (message.document.file_name or "").lower()
+    if not filename.endswith((".txt", ".csv")):
+        await message.answer("Поддерживаются файлы .txt и .csv.")
+        return
+    buffer = BytesIO()
+    await bot.download(message.document, destination=buffer)
+    try:
+        text = buffer.getvalue().decode("utf-8-sig")
+    except UnicodeDecodeError:
+        text = buffer.getvalue().decode("cp1251")
+    result = ClgPool(config.clg_database_path, config.clg_worked_path).import_text(text)
+    await message.answer(_clg_import_result_text(result.added, result.duplicates, result.invalid))
+
+
+@router.message(AdminForm.waiting_for_clg_sources)
+async def admin_import_clg_text(message: Message, config: BotConfig) -> None:
+    if not _is_owner(message, config):
+        await message.answer("У вас нет доступа к базе ЦЛГ.")
+        return
+    if not message.text:
+        await message.answer("Отправьте фото, текст, .txt или .csv.")
+        return
+    result = ClgPool(config.clg_database_path, config.clg_worked_path).import_text(message.text)
+    await message.answer(_clg_import_result_text(result.added, result.duplicates, result.invalid))
 
 
 @router.callback_query(F.data == "admin:grant_balance")

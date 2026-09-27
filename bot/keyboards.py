@@ -96,6 +96,9 @@ def admin_panel_keyboard() -> InlineKeyboardMarkup:
                 InlineKeyboardButton(text="⚙️ Стоимость генерации", callback_data="admin:prices"),
             ],
             [
+                InlineKeyboardButton(text="📥 База ЦЛГ", callback_data="admin:clg"),
+            ],
+            [
                 InlineKeyboardButton(text="↻ Обновить панель", callback_data="admin:back"),
             ],
             [InlineKeyboardButton(text="⌂ Главное меню", callback_data="user:home")],
@@ -130,6 +133,17 @@ def access_users_keyboard(user_ids: list[int], quota_user_ids: list[int] | None 
 def admin_back_keyboard() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         inline_keyboard=[
+            [InlineKeyboardButton(text="‹ Админ-панель", callback_data="admin:back")],
+        ]
+    )
+
+
+def admin_clg_keyboard() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text="📥 Загрузить исходники", callback_data="admin:clg_upload")],
+            [InlineKeyboardButton(text="📄 Скачать отработку", callback_data="admin:clg_worked")],
+            [InlineKeyboardButton(text="↻ Обновить", callback_data="admin:clg")],
             [InlineKeyboardButton(text="‹ Админ-панель", callback_data="admin:back")],
         ]
     )

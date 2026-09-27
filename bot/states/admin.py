@@ -5,3 +5,4 @@ class AdminForm(StatesGroup):
     waiting_for_user_id = State()
     waiting_for_balance_grant = State()
     waiting_for_generation_prices = State()
+    waiting_for_clg_sources = State()
