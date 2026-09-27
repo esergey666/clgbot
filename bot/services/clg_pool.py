@@ -15,7 +15,7 @@ from uuid import uuid4
 CODE_RE = re.compile(r"(?<!\d)(\d{12})(?!\d)")
 URL_RE = re.compile(r"https?://[^\s,;]+", re.IGNORECASE)
 CERTILOGO_TOKEN_RE = re.compile(r"https?://(?:www\.)?certilogo\.com/qr/([a-z0-9]+)", re.IGNORECASE)
-MAX_ARCHIVE_IMAGES = 500
+MAX_ARCHIVE_IMAGES = 1000
 MAX_ARCHIVE_UNPACKED_BYTES = 250 * 1024 * 1024
 MAX_IMAGE_BYTES = 20 * 1024 * 1024
 

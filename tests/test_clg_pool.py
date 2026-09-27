@@ -5,7 +5,14 @@ from pathlib import Path
 from io import BytesIO
 from zipfile import ZIP_DEFLATED, ZipFile
 
-from bot.services.clg_pool import ClgArchiveError, ClgPair, ClgPool, parse_clg_pairs, read_jpg_archive
+from bot.services.clg_pool import (
+    MAX_ARCHIVE_IMAGES,
+    ClgArchiveError,
+    ClgPair,
+    ClgPool,
+    parse_clg_pairs,
+    read_jpg_archive,
+)
 
 
 class ClgPoolTests(unittest.TestCase):
@@ -84,6 +91,9 @@ class ClgPoolTests(unittest.TestCase):
             archive.writestr("notes.txt", b"nothing")
         with self.assertRaises(ClgArchiveError):
             read_jpg_archive(buffer.getvalue())
+
+    def test_archive_image_limit_is_1000(self):
+        self.assertEqual(MAX_ARCHIVE_IMAGES, 1000)
 
 
 if __name__ == "__main__":
