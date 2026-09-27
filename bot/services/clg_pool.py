@@ -3,6 +3,8 @@ from __future__ import annotations
 import csv
 import re
 import sqlite3
+from io import BytesIO
+from zipfile import BadZipFile, ZipFile
 from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -13,6 +15,9 @@ from uuid import uuid4
 CODE_RE = re.compile(r"(?<!\d)(\d{12})(?!\d)")
 URL_RE = re.compile(r"https?://[^\s,;]+", re.IGNORECASE)
 CERTILOGO_TOKEN_RE = re.compile(r"https?://(?:www\.)?certilogo\.com/qr/([a-z0-9]+)", re.IGNORECASE)
+MAX_ARCHIVE_IMAGES = 500
+MAX_ARCHIVE_UNPACKED_BYTES = 250 * 1024 * 1024
+MAX_IMAGE_BYTES = 20 * 1024 * 1024
 
 
 @dataclass(frozen=True)
@@ -26,6 +31,35 @@ class ImportResult:
     added: int
     duplicates: int
     invalid: int
+
+
+class ClgArchiveError(ValueError):
+    pass
+
+
+def read_jpg_archive(data: bytes) -> list[tuple[str, bytes]]:
+    try:
+        archive = ZipFile(BytesIO(data))
+    except BadZipFile as error:
+        raise ClgArchiveError("Файл не является корректным ZIP-архивом.") from error
+
+    with archive:
+        members = [
+            item for item in archive.infolist()
+            if not item.is_dir() and item.filename.lower().endswith((".jpg", ".jpeg"))
+        ]
+        if not members:
+            raise ClgArchiveError("В архиве нет JPG/JPEG-файлов.")
+        if len(members) > MAX_ARCHIVE_IMAGES:
+            raise ClgArchiveError(f"В одном архиве допускается не более {MAX_ARCHIVE_IMAGES} изображений.")
+        if any(item.flag_bits & 0x1 for item in members):
+            raise ClgArchiveError("Архивы с паролем не поддерживаются.")
+        if any(item.file_size > MAX_IMAGE_BYTES for item in members):
+            raise ClgArchiveError("Размер одного изображения после распаковки не должен превышать 20 МБ.")
+        if sum(item.file_size for item in members) > MAX_ARCHIVE_UNPACKED_BYTES:
+            raise ClgArchiveError("Общий размер изображений после распаковки не должен превышать 250 МБ.")
+
+        return [(item.filename, archive.read(item)) for item in members]
 
 
 def normalize_url(value: str) -> str:

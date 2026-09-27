@@ -2,8 +2,10 @@ import csv
 import tempfile
 import unittest
 from pathlib import Path
+from io import BytesIO
+from zipfile import ZIP_DEFLATED, ZipFile
 
-from bot.services.clg_pool import ClgPair, ClgPool, parse_clg_pairs
+from bot.services.clg_pool import ClgArchiveError, ClgPair, ClgPool, parse_clg_pairs, read_jpg_archive
 
 
 class ClgPoolTests(unittest.TestCase):
@@ -64,6 +66,24 @@ class ClgPoolTests(unittest.TestCase):
         self.assertEqual(rows[0][:2], ["12_значный_код", "ссылка"])
         self.assertEqual(rows[1][0:2], [pair.code, pair.url])
         self.assertEqual(rows[1][3], "456")
+
+    def test_reads_jpg_files_from_zip_case_insensitively(self):
+        buffer = BytesIO()
+        with ZipFile(buffer, "w", ZIP_DEFLATED) as archive:
+            archive.writestr("folder/ONE.JPG", b"first")
+            archive.writestr("two.jpeg", b"second")
+            archive.writestr("notes.txt", b"ignored")
+        self.assertEqual(
+            read_jpg_archive(buffer.getvalue()),
+            [("folder/ONE.JPG", b"first"), ("two.jpeg", b"second")],
+        )
+
+    def test_rejects_zip_without_jpg(self):
+        buffer = BytesIO()
+        with ZipFile(buffer, "w") as archive:
+            archive.writestr("notes.txt", b"nothing")
+        with self.assertRaises(ClgArchiveError):
+            read_jpg_archive(buffer.getvalue())
 
 
 if __name__ == "__main__":

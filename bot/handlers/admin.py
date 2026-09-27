@@ -1,5 +1,6 @@
 from html import escape
 from io import BytesIO
+import logging
 from aiogram import Bot, F, Router
 from aiogram.filters import Command
 from aiogram.fsm.context import FSMContext
@@ -19,12 +20,13 @@ from bot.keyboards import (
 )
 from bot.pricing import DEFAULT_GENERATION_PRICES, PRICE_LABEL_ORDER
 from bot.services.access import AccessService
-from bot.services.clg_pool import ClgPair, ClgPool
+from bot.services.clg_pool import ClgArchiveError, ClgPair, ClgPool, read_jpg_archive
 from bot.services.image_label_recognizer import ImageLabelRecognitionError, recognize_clg_source
 from bot.states import AdminForm
 from bot.ui import replace_ui_message, send_ui_message
 
 router = Router()
+logger = logging.getLogger(__name__)
 
 
 PRICE_INPUT_ALIASES = {
@@ -194,7 +196,7 @@ async def admin_clg_upload(callback: CallbackQuery, state: FSMContext, config: B
             callback,
             state,
             "📥 <b>Загрузка ЦЛГ</b>\n\n"
-            "Отправляйте фото по одному либо текст/.txt/.csv. Каждая строка должна содержать "
+            "Отправляйте фото по одному, ZIP-архив с JPG/JPEG либо текст/.txt/.csv. Каждая строка должна содержать "
             "12-значный код и ссылку.\n\n"
             "Пример: <code>783440262709, http://certilogo.com/qr/14GSH3AB5W</code>\n\n"
             "Все повторы по коду или ссылке, включая ранее отработанные, будут отсечены.",
@@ -250,11 +252,47 @@ async def admin_import_clg_file(message: Message, config: BotConfig, bot: Bot) -
         await message.answer("У вас нет доступа к базе ЦЛГ.")
         return
     filename = (message.document.file_name or "").lower()
-    if not filename.endswith((".txt", ".csv")):
-        await message.answer("Поддерживаются файлы .txt и .csv.")
-        return
     buffer = BytesIO()
     await bot.download(message.document, destination=buffer)
+    if filename.endswith(".zip"):
+        try:
+            images = read_jpg_archive(buffer.getvalue())
+        except ClgArchiveError as error:
+            await message.answer(f"Архив не обработан: <code>{escape(str(error))}</code>")
+            return
+
+        status = await message.answer(f"Распознаю изображения: <b>0/{len(images)}</b>")
+        pairs: list[ClgPair] = []
+        failed_names: list[str] = []
+        for index, (image_name, image_bytes) in enumerate(images, start=1):
+            try:
+                code, url = await recognize_clg_source(image_bytes)
+                pairs.append(ClgPair(code, url))
+            except Exception:
+                logger.exception("Failed to recognize CLG source from archive member %s", image_name)
+                failed_names.append(image_name)
+            if index % 10 == 0 or index == len(images):
+                try:
+                    await status.edit_text(f"Распознаю изображения: <b>{index}/{len(images)}</b>")
+                except Exception:
+                    pass
+
+        result = ClgPool(config.clg_database_path, config.clg_worked_path).import_pairs(
+            pairs,
+            invalid=len(failed_names),
+        )
+        summary = _clg_import_result_text(result.added, result.duplicates, result.invalid)
+        if failed_names:
+            visible = failed_names[:20]
+            summary += "\n\nНе распознаны:\n" + "\n".join(f"<code>{escape(name)}</code>" for name in visible)
+            if len(failed_names) > len(visible):
+                summary += f"\n…и ещё {len(failed_names) - len(visible)}"
+        await status.edit_text(summary)
+        return
+
+    if not filename.endswith((".txt", ".csv")):
+        await message.answer("Поддерживаются файлы .txt, .csv и ZIP-архивы с JPG/JPEG.")
+        return
     try:
         text = buffer.getvalue().decode("utf-8-sig")
     except UnicodeDecodeError:
@@ -269,7 +307,7 @@ async def admin_import_clg_text(message: Message, config: BotConfig) -> None:
         await message.answer("У вас нет доступа к базе ЦЛГ.")
         return
     if not message.text:
-        await message.answer("Отправьте фото, текст, .txt или .csv.")
+        await message.answer("Отправьте фото, ZIP-архив с JPG/JPEG, текст, .txt или .csv.")
         return
     result = ClgPool(config.clg_database_path, config.clg_worked_path).import_text(message.text)
     await message.answer(_clg_import_result_text(result.added, result.duplicates, result.invalid))
