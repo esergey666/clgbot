@@ -27,6 +27,7 @@ from bot.ui import replace_ui_message, send_ui_message
 
 router = Router()
 logger = logging.getLogger(__name__)
+TELEGRAM_CLOUD_DOWNLOAD_LIMIT = 20 * 1024 * 1024
 
 
 PRICE_INPUT_ALIASES = {
@@ -252,16 +253,40 @@ async def admin_import_clg_file(message: Message, config: BotConfig, bot: Bot) -
         await message.answer("У вас нет доступа к базе ЦЛГ.")
         return
     filename = (message.document.file_name or "").lower()
+    is_zip = filename.endswith(".zip")
+    file_size = message.document.file_size or 0
+    if is_zip and file_size > TELEGRAM_CLOUD_DOWNLOAD_LIMIT:
+        await message.answer(
+            "ZIP получен, но официальный Telegram Bot API не позволяет боту скачать файл больше 20 МБ.\n\n"
+            "Разделите архив на части до 20 МБ каждая и отправьте их по очереди. "
+            "Ограничение в 1000 фото и 500 МБ после распаковки продолжает действовать для каждого архива."
+        )
+        return
+
+    download_status = await message.answer(
+        "ZIP получен. Скачиваю архив…" if is_zip else "Файл получен. Скачиваю…"
+    )
     buffer = BytesIO()
-    await bot.download(message.document, destination=buffer)
-    if filename.endswith(".zip"):
+    try:
+        await bot.download(message.document, destination=buffer)
+    except Exception as error:
+        logger.exception("Failed to download CLG source file %s", filename)
+        await download_status.edit_text(
+            "Не удалось скачать файл из Telegram. Если это ZIP, убедитесь, что его размер не превышает 20 МБ, "
+            "и отправьте ещё раз.\n\n"
+            f"Ошибка: <code>{escape(type(error).__name__)}</code>"
+        )
+        return
+
+    if is_zip:
         try:
             images = read_jpg_archive(buffer.getvalue())
         except ClgArchiveError as error:
-            await message.answer(f"Архив не обработан: <code>{escape(str(error))}</code>")
+            await download_status.edit_text(f"Архив не обработан: <code>{escape(str(error))}</code>")
             return
 
-        status = await message.answer(f"Распознаю изображения: <b>0/{len(images)}</b>")
+        status = download_status
+        await status.edit_text(f"Распознаю изображения: <b>0/{len(images)}</b>")
         pairs: list[ClgPair] = []
         failed_names: list[str] = []
         for index, (image_name, image_bytes) in enumerate(images, start=1):
@@ -291,14 +316,14 @@ async def admin_import_clg_file(message: Message, config: BotConfig, bot: Bot) -
         return
 
     if not filename.endswith((".txt", ".csv")):
-        await message.answer("Поддерживаются файлы .txt, .csv и ZIP-архивы с JPG/JPEG.")
+        await download_status.edit_text("Поддерживаются файлы .txt, .csv и ZIP-архивы с JPG/JPEG.")
         return
     try:
         text = buffer.getvalue().decode("utf-8-sig")
     except UnicodeDecodeError:
         text = buffer.getvalue().decode("cp1251")
     result = ClgPool(config.clg_database_path, config.clg_worked_path).import_text(text)
-    await message.answer(_clg_import_result_text(result.added, result.duplicates, result.invalid))
+    await download_status.edit_text(_clg_import_result_text(result.added, result.duplicates, result.invalid))
 
 
 @router.message(AdminForm.waiting_for_clg_sources)
