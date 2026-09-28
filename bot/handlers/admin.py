@@ -1,5 +1,7 @@
 from html import escape
 from io import BytesIO
+from tempfile import SpooledTemporaryFile
+from zipfile import BadZipFile, ZipFile
 import logging
 from aiogram import Bot, F, Router
 from aiogram.filters import Command
@@ -20,7 +22,7 @@ from bot.keyboards import (
 )
 from bot.pricing import DEFAULT_GENERATION_PRICES, PRICE_LABEL_ORDER
 from bot.services.access import AccessService
-from bot.services.clg_pool import ClgArchiveError, ClgPair, ClgPool, read_jpg_archive
+from bot.services.clg_pool import ClgArchiveError, ClgPair, ClgPool, jpg_archive_members
 from bot.services.image_label_recognizer import ImageLabelRecognitionError, recognize_clg_source
 from bot.states import AdminForm
 from bot.ui import replace_ui_message, send_ui_message
@@ -266,7 +268,9 @@ async def admin_import_clg_file(message: Message, config: BotConfig, bot: Bot) -
     download_status = await message.answer(
         "ZIP получен. Скачиваю архив…" if is_zip else "Файл получен. Скачиваю…"
     )
-    buffer = BytesIO()
+    # Large Telegram archives must not stay in RAM. Files larger than 16 MB are
+    # transparently spooled to disk and ZIP members are processed one at a time.
+    buffer = SpooledTemporaryFile(max_size=16 * 1024 * 1024, mode="w+b") if is_zip else BytesIO()
     try:
         await bot.download(
             message.document,
@@ -284,8 +288,13 @@ async def admin_import_clg_file(message: Message, config: BotConfig, bot: Bot) -
 
     if is_zip:
         try:
-            images = read_jpg_archive(buffer.getvalue())
-        except ClgArchiveError as error:
+            buffer.seek(0)
+            archive = ZipFile(buffer)
+            images = jpg_archive_members(archive)
+        except (BadZipFile, ClgArchiveError) as error:
+            buffer.close()
+            if isinstance(error, BadZipFile):
+                error = ClgArchiveError("Файл не является корректным ZIP-архивом.")
             await download_status.edit_text(f"Архив не обработан: <code>{escape(str(error))}</code>")
             return
 
@@ -293,18 +302,23 @@ async def admin_import_clg_file(message: Message, config: BotConfig, bot: Bot) -
         await status.edit_text(f"Распознаю изображения: <b>0/{len(images)}</b>")
         pairs: list[ClgPair] = []
         failed_names: list[str] = []
-        for index, (image_name, image_bytes) in enumerate(images, start=1):
-            try:
-                code, url = await recognize_clg_source(image_bytes)
-                pairs.append(ClgPair(code, url))
-            except Exception:
-                logger.exception("Failed to recognize CLG source from archive member %s", image_name)
-                failed_names.append(image_name)
-            if index % 10 == 0 or index == len(images):
+        try:
+            for index, image in enumerate(images, start=1):
                 try:
-                    await status.edit_text(f"Распознаю изображения: <b>{index}/{len(images)}</b>")
+                    image_bytes = archive.read(image)
+                    code, url = await recognize_clg_source(image_bytes)
+                    pairs.append(ClgPair(code, url))
                 except Exception:
-                    pass
+                    logger.exception("Failed to recognize CLG source from archive member %s", image.filename)
+                    failed_names.append(image.filename)
+                if index % 10 == 0 or index == len(images):
+                    try:
+                        await status.edit_text(f"Распознаю изображения: <b>{index}/{len(images)}</b>")
+                    except Exception:
+                        pass
+        finally:
+            archive.close()
+            buffer.close()
 
         result = ClgPool(config.clg_database_path, config.clg_worked_path).import_pairs(
             pairs,
