@@ -46,4 +46,4 @@ RUN chmod +x /app/start.sh \
     && mkdir -p /app/data/telegram-bot-api /tmp/telegram-bot-api
 
 ENTRYPOINT ["tini", "--"]
-CMD ["/app/start.sh"]
+CMD ["/bin/sh", "/app/start.sh"]
