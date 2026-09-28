@@ -1,3 +1,17 @@
+FROM debian:bookworm-slim AS telegram-api-builder
+
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends \
+        ca-certificates cmake g++ git gperf make libssl-dev zlib1g-dev \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /src
+RUN git clone --recursive --depth 1 https://github.com/tdlib/telegram-bot-api.git . \
+    && cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX=/opt/telegram-bot-api \
+    && cmake --build build --target install -j 2 \
+    && strip /opt/telegram-bot-api/bin/telegram-bot-api
+
+
 FROM python:3.11-slim-bookworm
 
 ENV PYTHONDONTWRITEBYTECODE=1
@@ -17,6 +31,7 @@ RUN apt-get update \
         libdmtx0b \
         tesseract-ocr \
         tesseract-ocr-eng \
+        tini \
     && ldconfig \
     && rm -rf /var/lib/apt/lists/*
 
@@ -25,5 +40,10 @@ RUN pip install --no-cache-dir --upgrade pip \
     && pip install --no-cache-dir --prefer-binary -r requirements.txt
 
 COPY . .
+COPY --from=telegram-api-builder /opt/telegram-bot-api/bin/telegram-bot-api /usr/local/bin/telegram-bot-api
 
-CMD ["python", "-m", "bot.main"]
+RUN chmod +x /app/start.sh \
+    && mkdir -p /app/data/telegram-bot-api /tmp/telegram-bot-api
+
+ENTRYPOINT ["tini", "--"]
+CMD ["/app/start.sh"]

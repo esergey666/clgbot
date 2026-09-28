@@ -109,3 +109,17 @@ sudo docker compose --profile local-api up -d --build
 ```
 
 Порт `8081` наружу не публикуется: API доступен только контейнеру бота. Данные локального Telegram API сохраняются в Docker-томе `telegram-bot-api-data`.
+
+### Развёртывание на Bothost
+
+Bothost запускает один контейнер и не использует `docker-compose.yml`. В проекте локальный Telegram API также встроен в основной `Dockerfile` и запускается автоматически, если заданы `TELEGRAM_API_ID` и `TELEGRAM_API_HASH`.
+
+В переменных окружения Bothost добавьте:
+
+```env
+TELEGRAM_API_ID=ваш_api_id
+TELEGRAM_API_HASH=ваш_api_hash
+TELEGRAM_API_BASE=http://127.0.0.1:8081
+```
+
+Затем включите использование Dockerfile из репозитория и выполните новый деплой. Для перехода с облачного API метод `logOut` всё равно выполняется один раз непосредственно перед первым запуском новой сборки.
