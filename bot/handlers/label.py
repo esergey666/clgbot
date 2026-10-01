@@ -65,6 +65,20 @@ def _callback_has_access(callback: CallbackQuery, config: BotConfig) -> bool:
     )
 
 
+def _message_has_permanent_access(message: Message, config: BotConfig) -> bool:
+    return message.from_user is not None and AccessService(config.access_users_path).has_permanent_access(
+        message.from_user.id,
+        config.admin_ids,
+    )
+
+
+def _callback_has_permanent_access(callback: CallbackQuery, config: BotConfig) -> bool:
+    return AccessService(config.access_users_path).has_permanent_access(
+        callback.from_user.id,
+        config.admin_ids,
+    )
+
+
 def _get_generation_price(config: BotConfig, label_type: str) -> int:
     return AccessService(config.access_users_path).get_generation_prices(DEFAULT_GENERATION_PRICES).get(label_type, 1)
 
@@ -122,6 +136,7 @@ async def _send_remaining_balance(message: Message, config: BotConfig, user_id: 
 
 
 MAIN_FORMAT = "артикул, цвет, размер, код"
+CUSTOM_CLG_FORMAT = "артикул, цвет, размер, код, ЦЛГ-код, ссылка"
 PRICE_TAG_FORMAT = "артикул, цвет, размер, название, старая цена, цена со скидкой"
 RECEIPT_FORMAT = "артикул, цвет, размер, название, цена[, дата/время]"
 LABEL_TYPE_FILE_SLUGS = {
@@ -155,6 +170,35 @@ def _parse_label_list(text: str, expected_parts: int) -> list[list[str]]:
     if not labels:
         raise ValueError("список пуст")
 
+    return labels
+
+
+def _parse_user_label_list(
+    text: str,
+    expected_parts: int,
+    *,
+    allow_custom_clg: bool = False,
+) -> list[list[str]]:
+    if not allow_custom_clg:
+        return _parse_label_list(text, expected_parts)
+
+    labels: list[list[str]] = []
+    parts_count: int | None = None
+    allowed_counts = {expected_parts, 6}
+    for line_number, raw_line in enumerate(text.splitlines(), start=1):
+        line = raw_line.strip()
+        if not line:
+            continue
+        parts = [part.strip() for part in line.split(",")]
+        if len(parts) not in allowed_counts or any(not part for part in parts):
+            raise ValueError(f"строка {line_number}: {line}")
+        if parts_count is None:
+            parts_count = len(parts)
+        elif len(parts) != parts_count:
+            raise ValueError(f"строка {line_number}: нельзя смешивать строки из 4 и 6 полей")
+        labels.append(parts)
+    if not labels:
+        raise ValueError("список пуст")
     return labels
 
 
@@ -801,16 +845,21 @@ async def _send_single_label(
             + "\n".join(f"<code>{path}</code>" for path in missing_paths)
         )
         return False
+    uses_custom_clg = len(parts) == 6
     pool = ClgPool(config.clg_database_path, config.clg_worked_path)
-    reservation_token, clg_pairs = pool.reserve(1)
-    if not clg_pairs:
-        await message.answer("В базе закончились доступные ЦЛГ. Сообщите администратору.")
-        return False
+    reservation_token: str | None = None
+    clg_pairs = []
+    if not uses_custom_clg:
+        reservation_token, clg_pairs = pool.reserve(1)
+        if not clg_pairs:
+            await message.answer("В базе закончились доступные ЦЛГ. Сообщите администратору.")
+            return False
     if not await _try_consume_balance(message, config, _get_generation_cost(config, label_type), payer_user_id):
-        pool.release(reservation_token)
+        if reservation_token is not None:
+            pool.release(reservation_token)
         logger.info("Single label request stopped by balance check: type=%s", label_type)
         return False
-    generation_parts = [*parts[:4], clg_pairs[0].code, clg_pairs[0].url]
+    generation_parts = parts[:6] if uses_custom_clg else [*parts[:4], clg_pairs[0].code, clg_pairs[0].url]
     status_message = await message.answer("Начинаю генерацию...")
 
     try:
@@ -818,7 +867,8 @@ async def _send_single_label(
         image = await _generate_label_image(generation_parts, label_type, config)
         logger.info("Image generated: type=%s bytes=%s", label_type, len(image.getvalue()))
     except Exception as error:
-        pool.release(reservation_token)
+        if reservation_token is not None:
+            pool.release(reservation_token)
         logger.exception("Failed to generate %s label", label_type)
         await message.answer(
             "Не удалось сгенерировать файл на хостинге.\n\n"
@@ -835,9 +885,11 @@ async def _send_single_label(
                      if label_type == MAIN_LABEL_TYPE else None),
         )
     except Exception:
-        pool.release(reservation_token)
+        if reservation_token is not None:
+            pool.release(reservation_token)
         raise
-    pool.consume(reservation_token, payer_user_id or (message.from_user.id if message.from_user else None))
+    if reservation_token is not None:
+        pool.consume(reservation_token, payer_user_id or (message.from_user.id if message.from_user else None))
     logger.info("Generated document sent: type=%s", label_type)
     await status_message.delete()
     await _send_remaining_balance(message, config, payer_user_id)
@@ -852,15 +904,20 @@ async def _send_many_labels(message: Message, labels: list[list[str]], label_typ
             + "\n".join(f"<code>{path}</code>" for path in missing_paths)
         )
         return False
+    uses_custom_clg = bool(labels) and len(labels[0]) == 6
     pool = ClgPool(config.clg_database_path, config.clg_worked_path)
-    reservation_token, clg_pairs = pool.reserve(len(labels))
-    if len(clg_pairs) != len(labels):
-        await message.answer(
-            f"Недостаточно ЦЛГ в базе: нужно <b>{len(labels)}</b>, доступно <b>{pool.counts()['available']}</b>."
-        )
-        return False
+    reservation_token: str | None = None
+    clg_pairs = []
+    if not uses_custom_clg:
+        reservation_token, clg_pairs = pool.reserve(len(labels))
+        if len(clg_pairs) != len(labels):
+            await message.answer(
+                f"Недостаточно ЦЛГ в базе: нужно <b>{len(labels)}</b>, доступно <b>{pool.counts()['available']}</b>."
+            )
+            return False
     if not await _try_consume_balance(message, config, _get_generation_cost(config, label_type, len(labels))):
-        pool.release(reservation_token)
+        if reservation_token is not None:
+            pool.release(reservation_token)
         return False
 
     status_message = await message.answer(
@@ -870,12 +927,17 @@ async def _send_many_labels(message: Message, labels: list[list[str]], label_typ
     archive_buffer = BytesIO()
 
     with ZipFile(archive_buffer, "w", compression=ZIP_DEFLATED) as archive:
-        for index, (parts, clg_pair) in enumerate(zip(labels, clg_pairs), start=1):
+        for index, parts in enumerate(labels, start=1):
             try:
-                generation_parts = [*parts[:4], clg_pair.code, clg_pair.url]
+                if uses_custom_clg:
+                    generation_parts = parts[:6]
+                else:
+                    clg_pair = clg_pairs[index - 1]
+                    generation_parts = [*parts[:4], clg_pair.code, clg_pair.url]
                 image = await _generate_label_image(generation_parts, label_type, config)
             except Exception as error:
-                pool.release(reservation_token)
+                if reservation_token is not None:
+                    pool.release(reservation_token)
                 logger.exception("Failed to generate %s label from line %s", label_type, index)
                 await message.answer(
                     f"Не удалось сгенерировать файл из строки {index}.\n\n"
@@ -897,9 +959,11 @@ async def _send_many_labels(message: Message, labels: list[list[str]], label_typ
             ),
         )
     except Exception:
-        pool.release(reservation_token)
+        if reservation_token is not None:
+            pool.release(reservation_token)
         raise
-    pool.consume(reservation_token, message.from_user.id if message.from_user else None)
+    if reservation_token is not None:
+        pool.consume(reservation_token, message.from_user.id if message.from_user else None)
     await status_message.delete()
     await _send_remaining_balance(message, config)
     return True
@@ -966,12 +1030,21 @@ async def handle_label_type(callback: CallbackQuery, state: FSMContext, config: 
 
     label_name = _get_label_type_name(label_type)
     label_format = _get_label_format(label_type)
+    custom_clg_allowed = (
+        label_type in {MAIN_LABEL_TYPE, CLG2026_LABEL_TYPE}
+        and _callback_has_permanent_access(callback, config)
+    )
     text = (
         f"Выбрано: {label_name}\n\n"
         "Отправьте данные одной строкой в формате:\n"
         f"<code>{label_format}</code>\n\n"
-        "Certilogo-код и ссылка будут автоматически взяты из закрытой базы.\n\n"
-        "Также можно отправить одно фото исходной бирки. Для массовой генерации — .txt, где каждая строка в таком же формате."
+        + (
+            "Или используйте свои ЦЛГ-данные:\n"
+            f"<code>{CUSTOM_CLG_FORMAT}</code>\n\n"
+            if custom_clg_allowed
+            else "Certilogo-код и ссылка будут автоматически взяты из закрытой базы.\n\n"
+        )
+        + "Также можно отправить одно фото исходной бирки. Для массовой генерации — .txt, где каждая строка в таком же формате."
     )
 
     if callback.message is not None:
@@ -1437,7 +1510,15 @@ async def handle_label_file(message: Message, state: FSMContext, config: BotConf
         text = file_buffer.getvalue().decode("cp1251")
 
     try:
-        labels = _parse_label_list(text, _get_expected_parts(label_type))
+        custom_clg_allowed = (
+            label_type in {MAIN_LABEL_TYPE, CLG2026_LABEL_TYPE}
+            and _message_has_permanent_access(message, config)
+        )
+        labels = _parse_user_label_list(
+            text,
+            _get_expected_parts(label_type),
+            allow_custom_clg=custom_clg_allowed,
+        )
         was_sent = await _send_many_labels(message, labels, label_type, config)
         if was_sent:
             await state.set_state(LabelForm.waiting_for_label_type)
@@ -1445,7 +1526,7 @@ async def handle_label_file(message: Message, state: FSMContext, config: BotConf
     except ValueError as error:
         await message.answer(
             "В списке есть ошибка. Формат каждой строки должен быть такой:\n"
-            f"<code>{_get_label_format(label_type)}</code>\n\n"
+            f"<code>{CUSTOM_CLG_FORMAT if custom_clg_allowed else _get_label_format(label_type)}</code>\n\n"
             f"Проблема: <code>{error}</code>"
         )
 
@@ -1516,7 +1597,15 @@ async def handle_label_data(message: Message, state: FSMContext, config: BotConf
         return
 
     try:
-        labels = _parse_label_list(message.text.strip(), _get_expected_parts(label_type))
+        custom_clg_allowed = (
+            label_type in {MAIN_LABEL_TYPE, CLG2026_LABEL_TYPE}
+            and _message_has_permanent_access(message, config)
+        )
+        labels = _parse_user_label_list(
+            message.text.strip(),
+            _get_expected_parts(label_type),
+            allow_custom_clg=custom_clg_allowed,
+        )
 
         if len(labels) == 1:
             was_sent = await _send_single_label(message, labels[0], label_type, config)
@@ -1528,9 +1617,13 @@ async def handle_label_data(message: Message, state: FSMContext, config: BotConf
             await message.answer("Готово. Можно создать следующий файл:", reply_markup=user_home_keyboard())
 
     except ValueError:
+        custom_clg_allowed = (
+            label_type in {MAIN_LABEL_TYPE, CLG2026_LABEL_TYPE}
+            and _message_has_permanent_access(message, config)
+        )
         await message.answer(
             "Неверный формат. Попробуйте еще раз:\n"
-            f"<code>{_get_label_format(label_type)}</code>\n\n"
+            f"<code>{CUSTOM_CLG_FORMAT if custom_clg_allowed else _get_label_format(label_type)}</code>\n\n"
             "Для массовой генерации можно отправить несколько строк текстом или .txt файлом."
         )
 
